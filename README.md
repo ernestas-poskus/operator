@@ -163,7 +163,7 @@ references, diagnostics, rename, or edits; use the host’s compiler/LSP for tho
 | Vector index | LanceDB 0.41, Arrow 58 |
 | Embedding + reranking | fastembed 7.7 with candle 0.11; Metal on macOS, CUDA on Linux/Windows; F16 by default |
 | Full-text | LanceDB FTS with code-aware identifier tokenization |
-| Chunking | xberg 1.3 with anydoc for document conversion |
+| Chunking | xberg 1.3; document conversion is routed between anydoc 0.2 and xberg 1.3 per format ([details](docs/document-router.md)) |
 | MCP | rmcp 3.7 over stdio |
 | Async / CLI | Tokio 1, argh |
 | TUI | ratatui 0.30, crossterm 0.29, notify 8 (optional `tui` feature) |

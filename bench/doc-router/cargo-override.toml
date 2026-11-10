@@ -1,0 +1,14 @@
+# The host's ~/.cargo/config.toml forces lto = true, panic = abort,
+# codegen-units = 1 and jobs = 64 on every build. This file restores an
+# ordinary release profile so the experiment measures the shipped
+# configuration — and so a panic in one document (xberg/xlsb) unwinds into the
+# router's per-document isolation instead of aborting the whole run.
+[build]
+jobs = 16
+[profile.release]
+lto = false
+codegen-units = 16
+panic = "unwind"
+incremental = false
+debug = false
+overflow-checks = false

@@ -106,6 +106,8 @@ pub async fn run(args: InitArgs) -> Result<()> {
         retrieval_query_routing: None,
         retrieval_chunk_lines: None,
         retrieval_chunk_overlap: None,
+        retrieval_document_engine: None,
+        retrieval_document_fallback: None,
     };
     if WorkspaceConfig::path_for(&workspace).exists() && !args.force {
         let existing = WorkspaceConfig::load(&workspace)?.unwrap_or_default();

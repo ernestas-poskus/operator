@@ -1,0 +1,96 @@
+{
+ "pins": {
+  "anydoc": "0.2.4",
+  "xberg": "1.3.10",
+  "xberg_bench_commit": "a33f39373e9446aa109776aa4986a3c91c1efbeb",
+  "test_documents": "385ddd5f11cddae0ef2b6146f800176206c0f0fd",
+  "tika": "a40d54f6a6d9cf8ce485f10bb07011cd32ef5925",
+  "bench_commit": "bench-anydoc-vs-xberg",
+  "cargo_lock_sha256": "7102b48a1b2bce9257a586295cda68944cc440b297e81a668af516fe517d3299",
+  "rustc": "rustc 1.99.0-nightly (73dc9167f 2026-08-01)",
+  "host": "Darwin arm64 25.5.0"
+ },
+ "formats": {
+  "pdf": {
+   "paired": 102,
+   "anydoc_f1": 0.9178,
+   "xberg_f1": 0.9354,
+   "f1_delta": 0.0175,
+   "wins": 41,
+   "losses": 18,
+   "latency_ratio": 2.49
+  },
+  "doc": {
+   "paired": 23,
+   "anydoc_f1": 0.9966,
+   "xberg_f1": 0.9717,
+   "f1_delta": -0.0249,
+   "wins": 0,
+   "losses": 3,
+   "latency_ratio": 3.857
+  },
+  "docx": {
+   "paired": 51,
+   "anydoc_f1": 0.8046,
+   "xberg_f1": 0.8314,
+   "f1_delta": 0.0268,
+   "wins": 10,
+   "losses": 5,
+   "latency_ratio": 1.062
+  },
+  "odt": {
+   "paired": 34,
+   "anydoc_f1": 0.9615,
+   "xberg_f1": 0.9472,
+   "f1_delta": -0.0143,
+   "wins": 1,
+   "losses": 4,
+   "latency_ratio": 1.143
+  },
+  "rtf": {
+   "paired": 43,
+   "anydoc_f1": 0.916,
+   "xberg_f1": 0.9165,
+   "f1_delta": 0.0005,
+   "wins": 3,
+   "losses": 3,
+   "latency_ratio": 2.517
+  },
+  "epub": {
+   "paired": 27,
+   "anydoc_f1": 0.7778,
+   "xberg_f1": 0.7701,
+   "f1_delta": -0.0077,
+   "wins": 8,
+   "losses": 10,
+   "latency_ratio": 2.435
+  },
+  "pptx": {
+   "paired": 25,
+   "anydoc_f1": 0.8987,
+   "xberg_f1": 0.9735,
+   "f1_delta": 0.0748,
+   "wins": 11,
+   "losses": 1,
+   "latency_ratio": 0.88
+  },
+  "xlsx": {
+   "paired": 32,
+   "anydoc_f1": 0.8355,
+   "xberg_f1": 0.8391,
+   "f1_delta": 0.0036,
+   "wins": 5,
+   "losses": 8,
+   "latency_ratio": 3.208
+  },
+  "ods": {
+   "paired": 5,
+   "anydoc_f1": 0.9382,
+   "xberg_f1": 0.9287,
+   "f1_delta": -0.0095,
+   "wins": 0,
+   "losses": 1,
+   "latency_ratio": 1.0
+  }
+ }
+}

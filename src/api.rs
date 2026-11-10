@@ -18,6 +18,11 @@ use crate::workspace_config::WorkspaceConfig;
 
 pub use crate::ast_grep::{CodeMatch, OutlineFile, OutlineSymbol};
 pub use crate::code_search::{IndexEvent, RetrievalIndexStatus, RetrievalRefresh};
+pub use crate::document::{
+    ANYDOC_VERSION, ConvertedDocument, DOCUMENT_EXTENSIONS, DocError, DocumentEngine, DocumentMeta,
+    Engine, FallbackPolicy, ROUTER_REVISION, XBERG_PRIMARY, XBERG_VERSION, route_for,
+    router_identity,
+};
 pub use crate::learn::JournalStats;
 pub use crate::tools::{SearchHit, SemanticHit};
 pub use crate::types::*;
@@ -237,6 +242,31 @@ impl Operator {
             .serve_stdio()
             .await
     }
+}
+
+/// Convert one document to Markdown with an explicit engine and fallback
+/// policy. The router's default is [`DocumentEngine::Auto`] plus
+/// [`FallbackPolicy::BestEffort`]; pinning an engine is for A/B runs and
+/// escape hatches.
+pub async fn convert_document(
+    path: &Path,
+    engine: DocumentEngine,
+    fallback: FallbackPolicy,
+) -> std::result::Result<ConvertedDocument, DocError> {
+    crate::document::convert_file_with(path, engine, fallback).await
+}
+
+/// Convert in-memory document bytes. `format_hint` is a document extension
+/// (`docx`, `pdf`, …), used for routing and for xberg's MIME hint when the
+/// content is not self-identifying.
+pub async fn convert_document_bytes(
+    bytes: &[u8],
+    format_hint: Option<&str>,
+    engine: DocumentEngine,
+    fallback: FallbackPolicy,
+) -> std::result::Result<ConvertedDocument, DocError> {
+    let format = format_hint.and_then(anydoc::Format::from_extension);
+    crate::document::convert_bytes_with(bytes, format, format_hint, engine, fallback).await
 }
 
 fn tool<T>(result: std::result::Result<T, String>) -> Result<T> {

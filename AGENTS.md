@@ -49,6 +49,9 @@ design decision.
 - `src/code_search.rs`/`src/retrieval.rs` own indexing and hybrid search.
 - `src/tools.rs` owns the five MCP tool implementations.
 - `src/mcp_server.rs` owns stdio MCP schemas/dispatch.
+- `src/document.rs` owns document→Markdown conversion and the measured
+  anydoc/xberg routing policy; `bench/doc-router/` owns the snapshot
+  experiment that justifies the table.
 - `src/learn.rs` owns the local journal and deterministic report.
 - `src/tui.rs` owns the init/dashboard terminal UI; it must never write to MCP
   stdio and must restore the terminal on every exit path.

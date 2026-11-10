@@ -1,62 +1,225 @@
-//! Document -> Markdown conversion for the planner's file readers.
+//! Document -> Markdown conversion with an evidence-derived engine router.
 //!
 //! Binary/office documents (Word, PowerPoint, Excel, OpenDocument, RTF, EPUB,
-//! PDF) are converted to GitHub-Flavored Markdown **in-process** by the
-//! [anydoc] crate — pure Rust, no network, no models, no `ort` — so the planner
+//! PDF) are converted to GitHub-Flavored Markdown **in-process** so the planner
 //! can ground a plan on a PDF spec, a DOCX design doc, or an XLSX sheet exactly
 //! as it reads a `.rs` file. The converted Markdown then flows through the
-//! existing pipeline unchanged: [crate::readfile] bounds it with
-//! `--file-read-max-chars`, the retrieval corpus chunks it with the xberg
+//! existing pipeline unchanged: the retrieval corpus chunks it with the xberg
 //! chunker, and Headroom reversibly compresses the tool result.
 //!
-//! **Text parity.** A plain UTF-8 file (including `.csv`) never reaches this
-//! module: [crate::readfile] reads it verbatim, byte-for-byte as before. Only a
-//! recognized document extension, or bytes that are *not* valid UTF-8 and carry
-//! a detectable document signature, are converted.
+//! # Engine router
 //!
-//! **OCR is out of scope here.** anydoc reads text-based PDFs only; a scanned
-//! page makes it fail with [`DocError::NeedsOcr`]. That is the signal to
-//! escalate to the out-of-process `docling-rs serve` deep parser (see
-//! [crate::docling]), never a hard read failure.
+//! Two in-process converters are compiled in: [`anydoc`] and the xberg
+//! extraction engine. They disagree per format, so the primary engine is a
+//! *measured* table ([`XBERG_PRIMARY`]), not a guess:
+//!
+//! * `pptx` — xberg is both more faithful (+0.074 token F1 over 25 paired
+//!   documents, 11 wins to 1) and faster (0.87× the latency), so xberg is
+//!   primary.
+//! * every other format — anydoc is equal or better on fidelity and covers
+//!   more documents, so anydoc is primary.
+//!
+//! The table is reproduced — and drift-checked — by `bench/doc-router/`; the
+//! `golden/route.json` there is the source of truth, and
+//! `tests/document_router.rs` fails when this file and the golden disagree.
+//!
+//! When the primary engine fails, [`FallbackPolicy`] decides whether the
+//! secondary gets a turn. `BestEffort` (the corpus default) takes a non-empty
+//! conversion from the other engine and records why the primary failed;
+//! `Strict` returns the primary error. Encryption never falls back (both
+//! engines fail on it), and an empty conversion is a failure, never a result.
+//! This is what turns a scanned PDF from "skipped" into "indexed with partial
+//! text plus a recorded fallback" without ever passing off truncated output as
+//! complete when the caller asked for strictness.
+//!
+//! Any router, engine or policy change must bump [`ROUTER_REVISION`]: the
+//! retrieval table identity (see [`router_identity`]) changes with it, so the
+//! document corpus re-embeds instead of mixing two output shapes.
+//!
+//! **Text parity.** A plain UTF-8 file (including `.csv`) never reaches this
+//! module: it is read verbatim. Only a recognized document extension, or bytes
+//! that are *not* valid UTF-8 and carry a detectable document signature, are
+//! converted.
 //!
 //! [anydoc]: https://github.com/firecrawl/anydoc
 
 use std::fmt;
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::types::{DocumentFormat, PageCount};
 
-/// Extensions the in-process converter handles, lower-case, without a dot.
+/// Extensions the in-process converters handle, lower-case, without a dot.
 ///
 /// `csv` is deliberately absent: a delimited text file is already UTF-8 text
-/// and must keep reading verbatim (byte-parity with the pre-anydoc behavior).
+/// and must keep reading verbatim (byte-parity with the pre-converter behavior).
 pub const DOCUMENT_EXTENSIONS: &[&str] = &[
     "pdf", "doc", "docx", "docm", "dot", "odt", "rtf", "epub", "ppt", "pptx", "pptm", "pps",
     "ppsx", "ppsm", "pot", "xls", "xlsx", "xlsm", "xlsb", "ods", "odp",
 ];
 
-/// The pinned converter version, stamped into the retrieval corpus identity
-/// (a converter change must re-embed, never silently mix output shapes).
+/// The pinned anydoc version, stamped into the retrieval corpus identity when
+/// the document corpus is off (source-only tables are unchanged by routing).
 pub const ANYDOC_VERSION: &str = "0.2.4";
 
-/// Whether `path` names a document this module converts (by extension).
-pub fn is_document_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|ext| {
-            DOCUMENT_EXTENSIONS
-                .iter()
-                .any(|known| known.eq_ignore_ascii_case(ext))
-        })
+/// The pinned xberg version the router was measured against.
+pub const XBERG_VERSION: &str = "1.3.10";
+
+/// Bump when the route table, an engine version or the fallback semantics
+/// change: the document corpus identity includes it, so embeddings are never
+/// mixed across converter output shapes.
+pub const ROUTER_REVISION: u32 = 1;
+
+/// Formats whose primary engine is xberg, from the `bench/doc-router` snapshot.
+///
+/// `pptx` is the only format where xberg beat anydoc on both fidelity and
+/// latency; every other format keeps anydoc primary. Its PresentationML
+/// siblings (`pptm`, `ppsx`, `ppsm`) share the parser and the verdict, while
+/// the binary `.ppt`/`.pps`/`.pot` formats do not. Do not edit this list without
+/// re-running the experiment and updating `golden/route.json`.
+pub const XBERG_PRIMARY: &[&str] = &["pptx", "pptm", "ppsx", "ppsm"];
+
+/// Which engine a caller wants. `Auto` follows [`XBERG_PRIMARY`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DocumentEngine {
+    /// Route by the measured table: xberg for `pptx`, anydoc otherwise.
+    #[default]
+    Auto,
+    /// Pin anydoc for every format (A/B runs and escape hatch).
+    Anydoc,
+    /// Pin xberg for every format (A/B runs and escape hatch).
+    Xberg,
 }
 
-/// The typed conversion failure surface (anydoc's `ConvertError`, flattened so
-/// callers do not depend on the upstream enum's `#[non_exhaustive]` shape).
+impl DocumentEngine {
+    /// Stable label used by identity strings, logs and the bench harness.
+    pub fn label(self) -> &'static str {
+        match self {
+            DocumentEngine::Auto => "auto",
+            DocumentEngine::Anydoc => "anydoc",
+            DocumentEngine::Xberg => "xberg",
+        }
+    }
+
+    /// Parse a configured value (`auto` | `anydoc` | `xberg`).
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(DocumentEngine::Auto),
+            "anydoc" => Some(DocumentEngine::Anydoc),
+            "xberg" => Some(DocumentEngine::Xberg),
+            _ => None,
+        }
+    }
+}
+
+impl std::str::FromStr for DocumentEngine {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        Self::parse(raw).ok_or_else(|| {
+            format!("invalid document engine '{raw}' (expected auto | anydoc | xberg)")
+        })
+    }
+}
+
+/// What to do when the primary engine cannot convert a document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FallbackPolicy {
+    /// Try the other engine; accept a non-empty result and record the primary
+    /// error on the conversion. The corpus default.
+    #[default]
+    BestEffort,
+    /// Return the primary engine's error. The caller wants the engine it named,
+    /// and "needs OCR" stays an escalation signal.
+    Strict,
+}
+
+impl FallbackPolicy {
+    /// Stable label used by identity strings, logs and the bench harness.
+    pub fn label(self) -> &'static str {
+        match self {
+            FallbackPolicy::BestEffort => "best-effort",
+            FallbackPolicy::Strict => "strict",
+        }
+    }
+
+    /// Parse a configured value (`best-effort` | `strict`).
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "best-effort" | "best_effort" | "besteffort" => Some(FallbackPolicy::BestEffort),
+            "strict" => Some(FallbackPolicy::Strict),
+            _ => None,
+        }
+    }
+}
+
+impl std::str::FromStr for FallbackPolicy {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        Self::parse(raw).ok_or_else(|| {
+            format!("invalid document fallback '{raw}' (expected best-effort | strict)")
+        })
+    }
+}
+
+/// A resolved engine (never `Auto`), recorded on every conversion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Engine {
+    /// The anydoc converter.
+    Anydoc,
+    /// The xberg extraction engine.
+    Xberg,
+}
+
+impl Engine {
+    /// Stable label used in provenance notes and identity strings.
+    pub fn label(self) -> &'static str {
+        match self {
+            Engine::Anydoc => "anydoc",
+            Engine::Xberg => "xberg",
+        }
+    }
+
+    /// The other engine, for the fallback turn.
+    pub fn other(self) -> Self {
+        match self {
+            Engine::Anydoc => Engine::Xberg,
+            Engine::Xberg => Engine::Anydoc,
+        }
+    }
+}
+
+/// A converted document plus the provenance of the conversion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConvertedDocument {
+    /// GitHub-Flavored Markdown, never empty.
+    pub markdown: String,
+    /// The engine that produced `markdown`.
+    pub engine: Engine,
+    /// The detected format label (`docx`, `pptx`, …).
+    pub format: DocumentFormat,
+    /// The primary engine's error when the other engine produced the result.
+    pub fallback: Option<DocError>,
+}
+
+impl ConvertedDocument {
+    /// Whether the document was converted by the fallback engine.
+    pub fn fell_back(&self) -> bool {
+        self.fallback.is_some()
+    }
+}
+
+/// The typed conversion failure surface (anydoc's `ConvertError` and xberg's
+/// errors flattened so callers do not depend on either upstream enum).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DocError {
     /// The format is unknown or cannot be converted at all.
     Unsupported(String),
-    /// Some pages are scanned/image-only and need OCR, which anydoc does not do.
+    /// Some pages are scanned/image-only and need OCR.
     NeedsOcr {
         /// 1-indexed pages that need OCR.
         pages: Vec<u32>,
@@ -65,7 +228,7 @@ pub enum DocError {
     },
     /// The document is encrypted or password-protected.
     Encrypted,
-    /// Structurally unusable (no meaningful content could be extracted).
+    /// Structurally unusable, or the converter returned no content.
     Malformed(String),
     /// A fixed safety/resource limit was exceeded.
     ResourceLimit(String),
@@ -74,10 +237,19 @@ pub enum DocError {
 }
 
 impl DocError {
-    /// Whether this failure is the escalation signal to the deep (docling) path.
-    #[allow(dead_code)]
+    /// Whether this failure is the escalation signal to an OCR-capable path.
     pub fn needs_ocr(&self) -> bool {
         matches!(self, DocError::NeedsOcr { .. })
+    }
+
+    /// Whether the other engine may be tried for this failure.
+    ///
+    /// Encryption fails identically in both engines and an I/O error will not
+    /// improve on retry, so neither falls back. Everything else may: a
+    /// malformed OOXML package, an anydoc safety limit, or a scanned page can
+    /// still yield a non-empty conversion from the other engine.
+    pub fn allows_fallback(&self) -> bool {
+        !matches!(self, DocError::Encrypted | DocError::Io(_))
     }
 }
 
@@ -104,14 +276,64 @@ impl fmt::Display for DocError {
 
 impl std::error::Error for DocError {}
 
-/// The document label written into the `// document:` header.
+/// Whether `path` names a document this module converts (by extension).
+pub fn is_document_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| {
+            DOCUMENT_EXTENSIONS
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(ext))
+        })
+}
+
+/// The primary engine for a format label (`pptx` → xberg, else anydoc).
+pub fn route_for(format: &str) -> Engine {
+    if XBERG_PRIMARY
+        .iter()
+        .any(|known| known.eq_ignore_ascii_case(format))
+    {
+        Engine::Xberg
+    } else {
+        Engine::Anydoc
+    }
+}
+
+/// The primary and secondary engine for a conversion request.
+fn plan(engine: DocumentEngine, format: &str) -> (Engine, Engine) {
+    let primary = match engine {
+        DocumentEngine::Auto => route_for(format),
+        DocumentEngine::Anydoc => Engine::Anydoc,
+        DocumentEngine::Xberg => Engine::Xberg,
+    };
+    (primary, primary.other())
+}
+
+/// The retrieval-corpus identity fragment for the document corpus.
+///
+/// Includes the router revision, both engine versions and the configured mode
+/// and policy, because each changes the converted text. Source-only corpora
+/// keep using [`ANYDOC_VERSION`] directly, so their tables and manifests are
+/// unchanged by routing.
+pub fn router_identity(engine: DocumentEngine, fallback: FallbackPolicy) -> String {
+    format!(
+        "r{ROUTER_REVISION}anydoc{}-xberg{}-{}-{}",
+        ANYDOC_VERSION.replace('.', ""),
+        XBERG_VERSION.replace('.', ""),
+        engine.label(),
+        fallback.label()
+    )
+}
+
+/// The document label written into a `// document:` header.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub struct DocumentMeta {
     /// Stable format name (`docx`, `pdf`, …).
     pub format: DocumentFormat,
     /// Page count, when the format reports one.
     pub pages: Option<PageCount>,
+    /// The engine that converted the document.
+    pub engine: Engine,
 }
 
 /// Flatten anydoc's `ConvertError` into [`DocError`].
@@ -139,18 +361,200 @@ fn map_convert_error(err: anydoc::ConvertError) -> DocError {
     }
 }
 
-/// Convert in-memory document bytes to Markdown. `format` selects the parser;
-/// `None` detects it from the content.
-pub fn convert_bytes(bytes: &[u8], format: Option<anydoc::Format>) -> Result<String, DocError> {
-    anydoc::to_markdown_bytes(bytes, format).map_err(map_convert_error)
+/// Flatten xberg's error surface by classification. The upstream enum is broad
+/// (OCR, layout, security, I/O), so the message is classified into the same
+/// variants callers already handle.
+fn map_xberg_error(err: xberg::XbergError) -> DocError {
+    let text = err.to_string();
+    let low = text.to_ascii_lowercase();
+    if low.contains("encrypt") || low.contains("password") || low.contains("protected") {
+        DocError::Encrypted
+    } else if low.contains("unsupported")
+        || low.contains("not supported")
+        || low.contains("cannot detect")
+    {
+        DocError::Unsupported(text)
+    } else if low.contains("limit")
+        || low.contains("too large")
+        || low.contains("exceeds")
+        || low.contains("zip bomb")
+        || low.contains("depth")
+    {
+        DocError::ResourceLimit(text)
+    } else {
+        DocError::Malformed(text)
+    }
 }
 
-/// Convert a document file to Markdown (format from its extension, else from
-/// the content).
-pub fn convert_file(path: &Path) -> Result<String, DocError> {
+/// The MIME type hint xberg needs for a bytes-only conversion.
+fn mime_for(format: &str) -> &'static str {
+    match format {
+        "doc" | "dot" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "docm" => "application/vnd.ms-word.document.macroenabled.12",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "ods" => "application/vnd.oasis.opendocument.spreadsheet",
+        "odp" => "application/vnd.oasis.opendocument.presentation",
+        "rtf" => "application/rtf",
+        "epub" => "application/epub+zip",
+        "pdf" => "application/pdf",
+        "ppt" | "pps" | "pot" => "application/vnd.ms-powerpoint",
+        "pptx" | "ppsx" => {
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        }
+        "pptm" | "ppsm" => "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xlsm" => "application/vnd.ms-excel.sheet.macroenabled.12",
+        "xlsb" => "application/vnd.ms-excel.sheet.binary.macroenabled.12",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Run one engine. `path` is `Some` when the file exists on disk (xberg reads
+/// it itself, matching how the benchmark measured it); bytes-only callers get a
+/// MIME hint instead.
+async fn run_engine(
+    engine: Engine,
+    path: Option<&Path>,
+    bytes: &[u8],
+    format: Option<anydoc::Format>,
+    label: &str,
+) -> Result<String, DocError> {
+    match engine {
+        Engine::Anydoc => anydoc::to_markdown_bytes(bytes, format).map_err(map_convert_error),
+        Engine::Xberg => run_xberg(path, bytes, label).await,
+    }
+}
+
+/// Convert with xberg on a spawned task so a panic in one document is a typed
+/// failure instead of aborting the whole corpus build.
+async fn run_xberg(path: Option<&Path>, bytes: &[u8], label: &str) -> Result<String, DocError> {
+    let config = xberg::ExtractionConfig {
+        output_format: xberg::OutputFormat::Markdown,
+        use_cache: false,
+        ..Default::default()
+    };
+    let input = match path {
+        Some(path) => xberg::ExtractInput::from_uri(path.to_string_lossy().into_owned()),
+        None => xberg::ExtractInput::from_bytes(
+            bytes.to_vec(),
+            mime_for(label),
+            Some(format!("document.{label}")),
+        ),
+    };
+    let handle = tokio::spawn(async move { xberg::extract(input, &config).await });
+    let outcome = handle
+        .await
+        .map_err(|join| DocError::Malformed(format!("xberg task failed: {join}")))?;
+    let result = outcome.map_err(map_xberg_error)?;
+    let markdown = result
+        .results
+        .first()
+        .map(|doc| doc.content.clone())
+        .unwrap_or_default();
+    if markdown.trim().is_empty() {
+        return Err(DocError::Malformed("xberg returned no content".into()));
+    }
+    Ok(markdown)
+}
+
+/// Convert in-memory document bytes to Markdown under an explicit engine and
+/// fallback policy. `format` selects the parser; `None` detects it from the
+/// content, and `format_hint` names the extension when detection cannot.
+pub async fn convert_bytes_with(
+    bytes: &[u8],
+    format: Option<anydoc::Format>,
+    format_hint: Option<&str>,
+    engine: DocumentEngine,
+    fallback: FallbackPolicy,
+) -> Result<ConvertedDocument, DocError> {
+    // The extension is the better label when the caller knows it (xberg needs
+    // a real MIME type); the detected format is the fallback.
+    let label = format_hint
+        .map(|hint| hint.trim_start_matches('.').to_ascii_lowercase())
+        .or_else(|| format.map(format_label).map(str::to_owned))
+        .unwrap_or_else(|| "unknown".to_string());
+    convert_inner(None, bytes, format, &label, engine, fallback).await
+}
+
+/// Convert a document file to Markdown under an explicit engine and policy.
+pub async fn convert_file_with(
+    path: &Path,
+    engine: DocumentEngine,
+    fallback: FallbackPolicy,
+) -> Result<ConvertedDocument, DocError> {
     let bytes = std::fs::read(path).map_err(|e| DocError::Io(e.to_string()))?;
-    let format = anydoc::Format::from_path(path);
-    convert_bytes(&bytes, format)
+    // Content first, extension second: anydoc's own CLI does the same, and a
+    // mislabelled file (an RTF named `.doc`, a DOCX named `.doc`) then converts
+    // with the parser its bytes call for instead of failing on the suffix.
+    let format = anydoc::Format::from_bytes(&bytes).or_else(|| anydoc::Format::from_path(path));
+    let label = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .or_else(|| format.map(format_label).map(str::to_owned))
+        .unwrap_or_else(|| "unknown".to_string());
+    convert_inner(Some(path), &bytes, format, &label, engine, fallback).await
+}
+
+/// Convert a document file with the default policy (`auto` + `best-effort`).
+pub async fn convert_file(path: &Path) -> Result<ConvertedDocument, DocError> {
+    convert_file_with(path, DocumentEngine::Auto, FallbackPolicy::BestEffort).await
+}
+
+/// Convert in-memory bytes with the default policy (`auto` + `best-effort`).
+#[allow(dead_code)]
+pub async fn convert_bytes(
+    bytes: &[u8],
+    format: Option<anydoc::Format>,
+) -> Result<ConvertedDocument, DocError> {
+    convert_bytes_with(
+        bytes,
+        format,
+        None,
+        DocumentEngine::Auto,
+        FallbackPolicy::BestEffort,
+    )
+    .await
+}
+
+async fn convert_inner(
+    path: Option<&Path>,
+    bytes: &[u8],
+    format: Option<anydoc::Format>,
+    label: &str,
+    engine: DocumentEngine,
+    fallback: FallbackPolicy,
+) -> Result<ConvertedDocument, DocError> {
+    let (primary, secondary) = plan(engine, label);
+    let format_typed = DocumentFormat::from(label);
+    let primary_error = match run_engine(primary, path, bytes, format, label).await {
+        Ok(markdown) if !markdown.trim().is_empty() => {
+            return Ok(ConvertedDocument {
+                markdown,
+                engine: primary,
+                format: format_typed,
+                fallback: None,
+            });
+        }
+        Ok(_) => DocError::Malformed("converter returned no content".into()),
+        Err(error) => error,
+    };
+    if fallback == FallbackPolicy::BestEffort && primary_error.allows_fallback() {
+        let secondary_attempt = run_engine(secondary, path, bytes, format, label).await;
+        if let Ok(markdown) = secondary_attempt
+            && !markdown.trim().is_empty()
+        {
+            return Ok(ConvertedDocument {
+                markdown,
+                engine: secondary,
+                format: format_typed,
+                fallback: Some(primary_error),
+            });
+        }
+    }
+    Err(primary_error)
 }
 
 /// The conversion decision for one file read: `Some(format)` when the bytes
@@ -170,9 +574,8 @@ pub fn should_convert(path: &Path, bytes: &[u8]) -> Option<anydoc::Format> {
     None
 }
 
-/// Stable, lower-case format label for the header (the upstream enum has no
-/// `Display`).
-#[allow(dead_code)]
+/// Stable, lower-case format label for the header and routing (the upstream
+/// enum has no `Display`).
 pub fn format_label(format: anydoc::Format) -> &'static str {
     use anydoc::Format;
     match format {
@@ -192,9 +595,9 @@ pub fn format_label(format: anydoc::Format) -> &'static str {
 }
 
 /// Format a converted document for the model context: a provenance header
-/// (`// document: <relpath> (format=<fmt>[, pages=N])`) plus the Markdown,
-/// truncated with the same head-elision style as [crate::readfile::format_file].
-/// `max_chars == 0` means unlimited.
+/// (`// document: <relpath> (format=<fmt>[, pages=N][, engine=<engine>])`)
+/// plus the Markdown, truncated with the same head-elision style as
+/// [`crate::readfile::format_file`]. `max_chars == 0` means unlimited.
 #[allow(dead_code)]
 pub fn format_document(
     markdown: &str,
@@ -214,8 +617,9 @@ pub fn format_document(
         .map(|p| format!(", pages={p}"))
         .unwrap_or_default();
     format!(
-        "// document: {rel_path} (format={}{pages})\n{body}",
-        meta.format
+        "// document: {rel_path} (format={}{pages}, engine={})\n{body}",
+        meta.format,
+        meta.engine.label()
     )
 }
 
@@ -262,48 +666,120 @@ mod tests {
     }
 
     #[test]
-    fn should_convert_uses_extension_then_signature_only_for_binary_bytes() {
-        let rtf = b"{\\rtf1\\ansi Hello}".as_slice();
-        assert_eq!(
-            should_convert(&path("a.rtf"), rtf),
-            Some(anydoc::Format::Rtf)
-        );
-        assert_eq!(should_convert(&path("a.txt"), b"plain text"), None);
-        // A document signature under an unknown extension is caught from the
-        // bytes — but only when the bytes are not UTF-8 (a PDF header alone is
-        // ASCII, so a real PDF's binary tail is what routes it).
-        assert_eq!(
-            should_convert(&path("a.bin"), b"%PDF-1.4\xff\xfe"),
-            Some(anydoc::Format::Pdf)
-        );
-        assert_eq!(should_convert(&path("a.bin"), &[0xff, 0xfe, 0x00]), None);
+    fn route_table_puts_the_presentationml_family_on_xberg() {
+        for presentationml in ["pptx", "pptm", "ppsx", "ppsm", "PPTX"] {
+            assert_eq!(route_for(presentationml), Engine::Xberg, "{presentationml}");
+        }
+        for other in [
+            "docx", "odp", "odt", "xlsx", "rtf", "epub", "pdf", "doc", "ppt", "pps", "pot",
+        ] {
+            assert_eq!(route_for(other), Engine::Anydoc, "{other}");
+        }
+        assert_eq!(XBERG_PRIMARY, &["pptx", "pptm", "ppsx", "ppsm"]);
     }
 
     #[test]
-    fn format_document_writes_a_provenance_header_and_bounds_the_body() {
+    fn plan_honours_forced_engines_and_auto_routes() {
+        assert_eq!(
+            plan(DocumentEngine::Auto, "pptx"),
+            (Engine::Xberg, Engine::Anydoc)
+        );
+        assert_eq!(
+            plan(DocumentEngine::Auto, "docx"),
+            (Engine::Anydoc, Engine::Xberg)
+        );
+        assert_eq!(
+            plan(DocumentEngine::Anydoc, "pptx"),
+            (Engine::Anydoc, Engine::Xberg)
+        );
+        assert_eq!(
+            plan(DocumentEngine::Xberg, "pot"),
+            (Engine::Xberg, Engine::Anydoc)
+        );
+        assert_eq!(
+            plan(DocumentEngine::Xberg, "docx"),
+            (Engine::Xberg, Engine::Anydoc)
+        );
+    }
+
+    #[test]
+    fn encryption_and_io_never_fall_back() {
+        assert!(!DocError::Encrypted.allows_fallback());
+        assert!(!DocError::Io("nope".into()).allows_fallback());
+        for err in [
+            DocError::NeedsOcr {
+                pages: vec![1],
+                page_count: 2,
+            },
+            DocError::Malformed("bad".into()),
+            DocError::Unsupported("x".into()),
+            DocError::ResourceLimit("depth".into()),
+        ] {
+            assert!(err.allows_fallback(), "{err:?}");
+        }
+    }
+
+    #[test]
+    fn router_identity_tracks_revision_engines_mode_and_policy() {
+        let auto = router_identity(DocumentEngine::Auto, FallbackPolicy::BestEffort);
+        assert!(auto.starts_with("r1anydoc024-xberg1310-auto-best-effort"));
+        assert_ne!(
+            auto,
+            router_identity(DocumentEngine::Anydoc, FallbackPolicy::BestEffort)
+        );
+        assert_ne!(
+            auto,
+            router_identity(DocumentEngine::Auto, FallbackPolicy::Strict)
+        );
+        assert_eq!(
+            auto,
+            router_identity(DocumentEngine::Auto, FallbackPolicy::BestEffort)
+        );
+    }
+
+    #[test]
+    fn engine_and_policy_labels_round_trip() {
+        for engine in [
+            DocumentEngine::Auto,
+            DocumentEngine::Anydoc,
+            DocumentEngine::Xberg,
+        ] {
+            assert_eq!(DocumentEngine::parse(engine.label()), Some(engine));
+        }
+        for policy in [FallbackPolicy::BestEffort, FallbackPolicy::Strict] {
+            assert_eq!(FallbackPolicy::parse(policy.label()), Some(policy));
+        }
+        assert!(DocumentEngine::parse("nope").is_none());
+        assert!(FallbackPolicy::parse("nope").is_none());
+    }
+
+    #[test]
+    fn format_document_writes_provenance_header_and_bounds_the_body() {
         let meta = DocumentMeta {
             format: "docx".into(),
             pages: None,
+            engine: Engine::Anydoc,
         };
         let out = format_document("# Title\n\nbody", "docs/spec.docx", &meta, 0);
         assert_eq!(
             out,
-            "// document: docs/spec.docx (format=docx)\n# Title\n\nbody"
+            "// document: docs/spec.docx (format=docx, engine=anydoc)\n# Title\n\nbody"
         );
 
         let with_pages = DocumentMeta {
             format: "pdf".into(),
             pages: Some(PageCount::new(12)),
+            engine: Engine::Xberg,
         };
         let head = format_document("body", "a.pdf", &with_pages, 0);
         assert!(
-            head.starts_with("// document: a.pdf (format=pdf, pages=12)"),
+            head.starts_with("// document: a.pdf (format=pdf, pages=12, engine=xberg)"),
             "{head}"
         );
 
         let truncated = format_document("abcdefghij", "a.docx", &meta, 4);
         assert!(
-            truncated.starts_with("// document: a.docx (format=docx)\nabcd"),
+            truncated.starts_with("// document: a.docx (format=docx, engine=anydoc)\nabcd"),
             "{truncated}"
         );
         assert!(
@@ -356,19 +832,45 @@ mod tests {
         assert!(all.contains("pages needing OCR: 4 of 4"), "{all}");
     }
 
-    #[test]
-    fn rtf_converts_end_to_end_to_markdown() {
+    #[tokio::test]
+    async fn rtf_converts_end_to_end_to_markdown() {
         // A minimal, well-formed RTF document: pure ASCII so it also proves the
         // extension-based routing (content sniffing alone would call it text).
         let rtf =
             b"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Times;}}\\f0\\fs24 Hello anydoc world.\\par}";
-        let md = convert_bytes(rtf.as_slice(), Some(anydoc::Format::Rtf)).unwrap();
-        assert!(md.contains("Hello anydoc world."), "{md}");
+        let converted = convert_bytes(rtf.as_slice(), Some(anydoc::Format::Rtf))
+            .await
+            .expect("rtf converts");
+        assert_eq!(converted.engine, Engine::Anydoc);
+        assert!(converted.fallback.is_none());
+        assert!(
+            converted.markdown.contains("Hello anydoc world."),
+            "{}",
+            converted.markdown
+        );
     }
 
-    #[test]
-    fn unrecognized_bytes_are_a_typed_unsupported_error() {
-        let err = convert_bytes(&[0x00, 0x01, 0x02], None).unwrap_err();
+    #[tokio::test]
+    async fn unrecognized_bytes_are_a_typed_unsupported_error() {
+        let err = convert_bytes(&[0x00, 0x01, 0x02], None)
+            .await
+            .expect_err("must not convert");
+        assert!(matches!(err, DocError::Unsupported(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn strict_policy_returns_the_primary_error_instead_of_falling_back() {
+        // Any bytes with no document signature fail anydoc; under Strict the
+        // error is returned as-is rather than handing the bytes to xberg.
+        let err = convert_bytes_with(
+            &[0x00, 0x01, 0x02],
+            None,
+            Some("bin"),
+            DocumentEngine::Auto,
+            FallbackPolicy::Strict,
+        )
+        .await
+        .expect_err("must not convert");
         assert!(matches!(err, DocError::Unsupported(_)), "{err:?}");
     }
 }

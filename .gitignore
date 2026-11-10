@@ -22,3 +22,17 @@ crates/*/target/
 # Python experiment harness cache
 __pycache__/
 *.pyc
+
+# Document-router experiment: fetched corpora, scores and local scratch.
+/bench/doc-router/.cache/
+/bench/doc-router/results/
+/bench/doc-router/.lo-profile/
+/bench/doc-router/*.log
+/.tmp/
+/.cargo-home/
+/.uv-cache/
+/.check.log
+/.fetch.log
+/.release*.log
+
+/.uv-cache/

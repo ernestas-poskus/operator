@@ -806,13 +806,13 @@ pub fn chunks_for_entry(
     path: &str,
     text: &str,
     file_hash: &str,
-    is_document: bool,
+    document_engine: Option<crate::document::Engine>,
     crate_name: &str,
     crate_dir: &str,
 ) -> Vec<LocalChunk> {
     let mut chunks = chunks_for_file(cfg, path, text, file_hash, crate_name, crate_dir);
-    if is_document {
-        annotate_document_chunks(&mut chunks, path);
+    if let Some(engine) = document_engine {
+        annotate_document_chunks(&mut chunks, path, engine);
     }
     chunks
 }
@@ -820,9 +820,15 @@ pub fn chunks_for_entry(
 /// Stamp document chunks: the `markdown` language label and a provenance note
 /// on every chunk's `File:` header, so a retrieved `path:line` anchor is never
 /// mistaken for a line in the original document.
-pub fn annotate_document_chunks(chunks: &mut [LocalChunk], path: &str) {
-    let header =
-        format!("File: {path} (converted document — line numbers refer to the converted Markdown)");
+pub fn annotate_document_chunks(
+    chunks: &mut [LocalChunk],
+    path: &str,
+    engine: crate::document::Engine,
+) {
+    let header = format!(
+        "File: {path} (converted document via {} — line numbers refer to the converted Markdown)",
+        engine.label()
+    );
     for chunk in chunks.iter_mut() {
         chunk.language = LanguageLabel::from("markdown");
         if let Some(rest) = chunk.content.strip_prefix(&format!("File: {path}")) {
@@ -1176,7 +1182,18 @@ fn table_name_for(cfg: &Config, embedder: &str) -> String {
         } else {
             "src"
         },
-        crate::document::ANYDOC_VERSION.replace('.', ""),
+        // The document corpus identity follows the converter router (engines,
+        // versions, mode and fallback policy all change the converted text).
+        // Source-only corpora keep the incumbent anydoc fragment, so their
+        // table and manifest names are byte-identical to before.
+        if cfg.retrieval_documents.is_on() {
+            crate::document::router_identity(
+                cfg.retrieval_document_engine,
+                cfg.retrieval_document_fallback,
+            )
+        } else {
+            crate::document::ANYDOC_VERSION.replace('.', "")
+        },
         embedder,
         // E6/C: the context enrichment changes what text is embedded. The
         // incumbent (`path`) contributes the EMPTY fragment, so its table and
@@ -2608,7 +2625,9 @@ impl LocalCodeIndex {
         // Discover + hash every file once.
         let mut discovered: Vec<(String, String)> = Vec::new();
         let mut contents: HashMap<String, String> = HashMap::new();
-        let mut document_rels: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Which engine converted each document, stamped onto its chunks so a
+        // retrieved chunk says whether it came from anydoc or xberg.
+        let mut document_engines: HashMap<String, crate::document::Engine> = HashMap::new();
         for path in &files {
             let rel = match path.strip_prefix(&cfg.workspace_root) {
                 Ok(rel) => rel.to_string_lossy().into_owned(),
@@ -2616,11 +2635,20 @@ impl LocalCodeIndex {
             };
             let is_document = crate::document::is_document_path(path);
             let text = if is_document {
-                match crate::document::convert_file(path) {
-                    Ok(markdown) if !markdown.trim().is_empty() => cap_document_text(markdown),
-                    // A converted-but-empty document contributes nothing; a
-                    // failed conversion skips just that file, never the build.
-                    Ok(_) => continue,
+                // The router's fallback turn is recorded so a partial
+                // conversion (for example a scanned PDF that anydoc refuses
+                // and xberg reads partially) is visible, never silent.
+                match crate::document::convert_file(path).await {
+                    Ok(converted) => {
+                        if let Some(primary_error) = &converted.fallback {
+                            eprintln!(
+                                "  (retrieval: {rel}: converted via {} after {primary_error} — partial)",
+                                converted.engine.label()
+                            );
+                        }
+                        document_engines.insert(rel.clone(), converted.engine);
+                        cap_document_text(converted.markdown)
+                    }
                     Err(e) => {
                         eprintln!("  (retrieval: {rel}: {e} — skipped)");
                         continue;
@@ -2634,9 +2662,6 @@ impl LocalCodeIndex {
             };
             let hash = file_hash_of(&text);
             contents.insert(rel.clone(), text);
-            if is_document {
-                document_rels.insert(rel.clone());
-            }
             discovered.push((rel, hash.into_inner()));
         }
         if discovered.is_empty() {
@@ -2744,7 +2769,7 @@ impl LocalCodeIndex {
                     file,
                     text,
                     file_hash_of(text).as_str(),
-                    document_rels.contains(file),
+                    document_engines.get(file).copied(),
                     &scope,
                     &crate_dir,
                 );
@@ -2887,7 +2912,7 @@ impl LocalCodeIndex {
                 path,
                 text,
                 hash.as_str(),
-                document_rels.contains(path),
+                document_engines.get(path).copied(),
                 &crate_name,
                 &crate_dir,
             ) {
@@ -4370,7 +4395,15 @@ mod tests {
     #[test]
     fn document_chunks_are_annotated_and_source_chunks_are_not() {
         let cfg = Config::test_default();
-        let doc = chunks_for_entry(&cfg, "spec.rtf", "hello world", "h", true, "docs", "");
+        let doc = chunks_for_entry(
+            &cfg,
+            "spec.rtf",
+            "hello world",
+            "h",
+            Some(crate::document::Engine::Anydoc),
+            "docs",
+            "",
+        );
         assert_eq!(doc.len(), 1);
         assert_eq!(doc[0].language, "markdown");
         assert!(
@@ -4381,7 +4414,7 @@ mod tests {
             doc[0].content
         );
 
-        let src = chunks_for_entry(&cfg, "src/lib.rs", "fn main() {}", "h", false, "c", "");
+        let src = chunks_for_entry(&cfg, "src/lib.rs", "fn main() {}", "h", None, "c", "");
         assert_eq!(src[0].language, "rs");
         assert!(!src[0].content.contains("converted document"));
     }

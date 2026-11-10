@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paths, source text, counts, line numbers, scores, model/table names, paths
   and configuration flags). The wrappers are `serde(transparent)`, so the JSON
   and `.operator.toml` wire formats are unchanged.
+- Document conversion now routes per format between anydoc 0.2 (primary for
+  every format it wins) and xberg 1.3 (primary for `pptx`, the one format where
+  it is more faithful and faster), with a typed `best-effort`/`strict` fallback
+  policy, `retrieval_document_engine` and `retrieval_document_fallback`
+  configuration, chunk provenance naming the engine, and a document-corpus
+  identity that re-embeds when any of them changes. The routing table is
+  measured: `bench/doc-router/` freezes the 507-document snapshot, both engines'
+  raw results and `golden/route.json`, and `tests/document_router.rs` fails if
+  the code and the golden table drift. See `docs/document-router.md`.
+  Cost: +39 MB unstripped binary (+12%), no measurable build-time change.
 
 ### Changed
 

@@ -10,4 +10,8 @@ the exact versions are pinned by `Cargo.lock`. The only in-repository library is
 Notable direct dependencies include ast-grep, LanceDB, fastembed/candle,
 xberg/anydoc, rmcp, and the Rust async ecosystem. Each crate's license and
 copyright notice are available from its published package. No third-party
-license text is redistributed here because no third-party source is vendored.
+source code is vendored here.
+
+The only third-party content committed to this repository is the small set of
+Apache-2.0 test documents under `bench/doc-router/fixtures/`, used to test the
+document router. They are attributed in `bench/doc-router/fixtures/ATTRIBUTIONS.md`.

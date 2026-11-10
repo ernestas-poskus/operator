@@ -1,0 +1,173 @@
+{
+ "schema": "operator-doc-router-route/1",
+ "router_revision": 1,
+ "anydoc": "0.2.4",
+ "xberg": "1.3.10",
+ "rule": "xberg primary iff mean paired token-F1 delta >= +0.03 and wins >= 2x losses and xberg latency <= 1.5x anydoc; otherwise anydoc",
+ "evidence": {
+  "pdf": {
+   "paired": 102,
+   "anydoc_f1": 0.9178,
+   "xberg_f1": 0.9354,
+   "f1_delta": 0.0175,
+   "wins": 41,
+   "losses": 18,
+   "latency_ratio": 2.49
+  },
+  "doc": {
+   "paired": 23,
+   "anydoc_f1": 0.9966,
+   "xberg_f1": 0.9717,
+   "f1_delta": -0.0249,
+   "wins": 0,
+   "losses": 3,
+   "latency_ratio": 3.857
+  },
+  "docx": {
+   "paired": 51,
+   "anydoc_f1": 0.8046,
+   "xberg_f1": 0.8314,
+   "f1_delta": 0.0268,
+   "wins": 10,
+   "losses": 5,
+   "latency_ratio": 1.062
+  },
+  "docm": {
+   "paired": 51,
+   "anydoc_f1": 0.8046,
+   "xberg_f1": 0.8314,
+   "f1_delta": 0.0268,
+   "wins": 10,
+   "losses": 5,
+   "latency_ratio": 1.062
+  },
+  "dot": {
+   "paired": 23,
+   "anydoc_f1": 0.9966,
+   "xberg_f1": 0.9717,
+   "f1_delta": -0.0249,
+   "wins": 0,
+   "losses": 3,
+   "latency_ratio": 3.857
+  },
+  "odt": {
+   "paired": 34,
+   "anydoc_f1": 0.9615,
+   "xberg_f1": 0.9472,
+   "f1_delta": -0.0143,
+   "wins": 1,
+   "losses": 4,
+   "latency_ratio": 1.143
+  },
+  "rtf": {
+   "paired": 43,
+   "anydoc_f1": 0.916,
+   "xberg_f1": 0.9165,
+   "f1_delta": 0.0005,
+   "wins": 3,
+   "losses": 3,
+   "latency_ratio": 2.517
+  },
+  "epub": {
+   "paired": 27,
+   "anydoc_f1": 0.7778,
+   "xberg_f1": 0.7701,
+   "f1_delta": -0.0077,
+   "wins": 8,
+   "losses": 10,
+   "latency_ratio": 2.435
+  },
+  "ppt": null,
+  "pptx": {
+   "paired": 25,
+   "anydoc_f1": 0.8987,
+   "xberg_f1": 0.9735,
+   "f1_delta": 0.0748,
+   "wins": 11,
+   "losses": 1,
+   "latency_ratio": 0.88
+  },
+  "pptm": {
+   "paired": 25,
+   "anydoc_f1": 0.8987,
+   "xberg_f1": 0.9735,
+   "f1_delta": 0.0748,
+   "wins": 11,
+   "losses": 1,
+   "latency_ratio": 0.88
+  },
+  "pps": null,
+  "ppsx": {
+   "paired": 25,
+   "anydoc_f1": 0.8987,
+   "xberg_f1": 0.9735,
+   "f1_delta": 0.0748,
+   "wins": 11,
+   "losses": 1,
+   "latency_ratio": 0.88
+  },
+  "ppsm": {
+   "paired": 25,
+   "anydoc_f1": 0.8987,
+   "xberg_f1": 0.9735,
+   "f1_delta": 0.0748,
+   "wins": 11,
+   "losses": 1,
+   "latency_ratio": 0.88
+  },
+  "pot": null,
+  "xls": null,
+  "xlsx": {
+   "paired": 32,
+   "anydoc_f1": 0.8355,
+   "xberg_f1": 0.8391,
+   "f1_delta": 0.0036,
+   "wins": 5,
+   "losses": 8,
+   "latency_ratio": 3.208
+  },
+  "xlsm": {
+   "paired": 32,
+   "anydoc_f1": 0.8355,
+   "xberg_f1": 0.8391,
+   "f1_delta": 0.0036,
+   "wins": 5,
+   "losses": 8,
+   "latency_ratio": 3.208
+  },
+  "xlsb": null,
+  "ods": {
+   "paired": 5,
+   "anydoc_f1": 0.9382,
+   "xberg_f1": 0.9287,
+   "f1_delta": -0.0095,
+   "wins": 0,
+   "losses": 1,
+   "latency_ratio": 1.0
+  },
+  "odp": null
+ },
+ "formats": {
+  "pdf": "anydoc",
+  "doc": "anydoc",
+  "docx": "anydoc",
+  "docm": "anydoc",
+  "dot": "anydoc",
+  "odt": "anydoc",
+  "rtf": "anydoc",
+  "epub": "anydoc",
+  "ppt": "anydoc",
+  "pptx": "xberg",
+  "pptm": "xberg",
+  "pps": "anydoc",
+  "ppsx": "xberg",
+  "ppsm": "xberg",
+  "pot": "anydoc",
+  "xls": "anydoc",
+  "xlsx": "anydoc",
+  "xlsm": "anydoc",
+  "xlsb": "anydoc",
+  "ods": "anydoc",
+  "odp": "anydoc"
+ }
+}

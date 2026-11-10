@@ -104,6 +104,11 @@ pub struct Config {
     pub retrieval_include: Vec<IncludePath>,
     pub retrieval_exclude: Vec<ExcludePath>,
     pub retrieval_documents: Documents,
+    /// Which engine converts documents in the opt-in document corpus
+    /// (`auto` follows the measured router, `anydoc`/`xberg` pin one engine).
+    pub retrieval_document_engine: crate::document::DocumentEngine,
+    /// Whether a failed primary conversion may fall back to the other engine.
+    pub retrieval_document_fallback: crate::document::FallbackPolicy,
     pub retrieval_dense_weight: Weight,
     pub retrieval_fusion: crate::code_search::Fusion,
     pub retrieval_rerank_score: crate::code_search::RerankScoreNorm,
@@ -164,6 +169,8 @@ impl Config {
             retrieval_include: Vec::new(),
             retrieval_exclude: Vec::new(),
             retrieval_documents: Documents::off(),
+            retrieval_document_engine: crate::document::DocumentEngine::Auto,
+            retrieval_document_fallback: crate::document::FallbackPolicy::BestEffort,
             retrieval_dense_weight: Weight::new(2.0),
             // RRF is the shipped fusion; it is robust across query shapes.
             retrieval_fusion: crate::code_search::Fusion::Rrf,

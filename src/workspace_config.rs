@@ -43,6 +43,12 @@ pub struct WorkspaceConfig {
     pub retrieval_query_routing: Option<QueryRouting>,
     pub retrieval_chunk_lines: Option<ChunkLines>,
     pub retrieval_chunk_overlap: Option<ChunkOverlap>,
+    /// Document conversion engine for the opt-in document corpus
+    /// (`auto` | `anydoc` | `xberg`).
+    pub retrieval_document_engine: Option<crate::document::DocumentEngine>,
+    /// Fallback policy when the primary engine fails
+    /// (`best-effort` | `strict`).
+    pub retrieval_document_fallback: Option<crate::document::FallbackPolicy>,
 }
 
 impl WorkspaceConfig {
@@ -163,6 +169,12 @@ impl WorkspaceConfig {
         }
         if let Some(overlap) = self.retrieval_chunk_overlap {
             cfg.retrieval_chunk_overlap = overlap;
+        }
+        if let Some(engine) = self.retrieval_document_engine {
+            cfg.retrieval_document_engine = engine;
+        }
+        if let Some(fallback) = self.retrieval_document_fallback {
+            cfg.retrieval_document_fallback = fallback;
         }
         cfg
     }
