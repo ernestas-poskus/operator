@@ -23,6 +23,7 @@
 //! `serve` reconciles it never sees a half-written document.
 
 use crate::error::{Error, Result};
+use crate::types::{Argv, HostFile, UpdatedAt};
 use std::path::Path;
 
 /// How a host should reach the operator.
@@ -32,7 +33,7 @@ pub enum Transport {
     /// (`serve`), the rest are its flags.
     Stdio {
         /// The argv after the command name.
-        argv: Vec<String>,
+        argv: Argv,
     },
     /// Connect to a running instance over Streamable HTTP (`…/mcp`).
     #[allow(dead_code)]
@@ -57,9 +58,9 @@ pub enum Mode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Registered {
     /// Workspace-relative files written or created, in registration order.
-    pub files: Vec<String>,
+    pub files: Vec<HostFile>,
     /// Unix seconds when the pass finished.
-    pub updated_at: i64,
+    pub updated_at: UpdatedAt,
 }
 
 /// The `operator` server name in every host file.
@@ -118,12 +119,12 @@ pub fn register_operator(
             }
         };
         if changed {
-            files.push(rel.to_string());
+            files.push(HostFile::from(rel));
         }
     }
     Ok(Registered {
         files,
-        updated_at: now_unix(),
+        updated_at: UpdatedAt::new(now_unix()),
     })
 }
 
@@ -221,7 +222,7 @@ fn fresh_codex(transport: &Transport) -> String {
             body.push_str(&format!("command = {}\n", toml_string(COMMAND)));
             let args = argv
                 .iter()
-                .map(|a| toml_string(a))
+                .map(|a| toml_string(a.as_str()))
                 .collect::<Vec<_>>()
                 .join(", ");
             body.push_str(&format!("args = [{args}]\n"));
@@ -346,6 +347,7 @@ fn announce_unreadable(log_prefix: &str, path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::CommandArg;
 
     fn http() -> Transport {
         Transport::Http {
@@ -355,11 +357,11 @@ mod tests {
 
     fn stdio() -> Transport {
         Transport::Stdio {
-            argv: vec![
-                "serve".to_string(),
-                "--planner-model".to_string(),
-                "x".to_string(),
-            ],
+            argv: Argv::new(vec![
+                CommandArg::from("serve"),
+                CommandArg::from("--planner-model"),
+                CommandArg::from("x"),
+            ]),
         }
     }
 
@@ -525,7 +527,7 @@ mod tests {
         .unwrap();
         let done = register_operator(dir.path(), &http(), Mode::CreateOnly, "test").unwrap();
         assert!(
-            !done.files.contains(&".mcp.json".to_string()),
+            !done.files.contains(&HostFile::from(".mcp.json")),
             "{:?}",
             done.files
         );

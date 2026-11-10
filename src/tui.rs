@@ -22,7 +22,10 @@ use crate::code_search::{IndexEvent, RetrievalIndexStatus};
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::languages;
-use crate::types::{ExcludePath, IncludePath, LanguageId, SchemaVersion};
+use crate::types::{
+    Argv, CommandArg, ExcludePath, FileCount, IncludePath, LanguageId, RepoPath, SchemaVersion,
+    SourceText, WorkspaceRoot,
+};
 use crate::workspace_config::WorkspaceConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,17 +46,17 @@ enum Selection {
 #[derive(Debug, Clone)]
 struct Node {
     path: PathBuf,
-    rel: String,
+    rel: RepoPath,
     name: String,
     is_dir: bool,
     depth: usize,
     parent: Option<PathBuf>,
     language: Option<LanguageId>,
-    files: usize,
+    files: FileCount,
 }
 
 struct App {
-    workspace: PathBuf,
+    workspace: WorkspaceRoot,
     mode: &'static str,
     tab: Tab,
     trees: Vec<Node>,
@@ -66,7 +69,7 @@ struct App {
     selected_languages: BTreeSet<LanguageId>,
     base: WorkspaceConfig,
     detected: Vec<languages::DetectedLanguage>,
-    explicit: HashMap<String, Selection>,
+    explicit: HashMap<RepoPath, Selection>,
     search: String,
     search_mode: bool,
     help: bool,
@@ -76,7 +79,7 @@ struct App {
     status: Option<RetrievalIndexStatus>,
     status_rx: Option<tokio::sync::mpsc::UnboundedReceiver<RetrievalIndexStatus>>,
     progress: Option<IndexEvent>,
-    log: Vec<String>,
+    log: Vec<SourceText>,
     new_events: usize,
     index_rx: Option<tokio::sync::mpsc::UnboundedReceiver<IndexEvent>>,
     _watcher: Option<RecommendedWatcher>,
@@ -88,10 +91,11 @@ struct App {
 
 impl App {
     fn new(
-        workspace: PathBuf,
+        workspace: impl Into<WorkspaceRoot>,
         mode: &'static str,
         detected: Vec<languages::DetectedLanguage>,
     ) -> Self {
+        let workspace = workspace.into();
         let selected_languages = detected
             .iter()
             .map(|d| LanguageId::from_lang(d.lang))
@@ -167,10 +171,12 @@ impl App {
                 }
             }
             for path in cfg.retrieval_include.unwrap_or_default() {
-                self.explicit.insert(path.to_string(), Selection::Include);
+                self.explicit
+                    .insert(RepoPath::from(path.as_str()), Selection::Include);
             }
             for path in cfg.retrieval_exclude.unwrap_or_default() {
-                self.explicit.insert(path.to_string(), Selection::Exclude);
+                self.explicit
+                    .insert(RepoPath::from(path.as_str()), Selection::Exclude);
             }
         }
     }
@@ -180,8 +186,8 @@ impl App {
         let mut excludes = Vec::new();
         for (path, state) in &self.explicit {
             match state {
-                Selection::Include => includes.push(path.clone()),
-                Selection::Exclude => excludes.push(path.clone()),
+                Selection::Include => includes.push(IncludePath::from(path.as_str())),
+                Selection::Exclude => excludes.push(ExcludePath::from(path.as_str())),
             }
         }
         includes.sort();
@@ -189,16 +195,16 @@ impl App {
         let mut base = self.base.clone();
         base.schema_version = Some(SchemaVersion::new(3));
         base.languages = Some(self.selected_languages.iter().cloned().collect());
-        base.retrieval_include = Some(includes.into_iter().map(IncludePath::from).collect());
-        base.retrieval_exclude = Some(excludes.into_iter().map(ExcludePath::from).collect());
+        base.retrieval_include = Some(includes);
+        base.retrieval_exclude = Some(excludes);
         base
     }
 
     fn config_full(&self) -> Result<Config> {
-        let root = std::fs::canonicalize(&self.workspace)
+        let root = std::fs::canonicalize(self.workspace.as_path())
             .map_err(|e| Error::Config(format!("workspace: {e}")))?;
         for path in self.includes().into_iter().chain(self.excludes()) {
-            let candidate = root.join(&path);
+            let candidate = root.join(path.as_str());
             let canonical = std::fs::canonicalize(&candidate)
                 .map_err(|e| Error::Config(format!("{path}: {e}")))?;
             if !canonical.starts_with(&root) {
@@ -220,7 +226,7 @@ impl App {
         let ws = self.config();
         ws.save(&self.workspace)?;
         let transport = crate::mcp_register::Transport::Stdio {
-            argv: vec!["serve".into()],
+            argv: Argv::new(vec![CommandArg::from("serve")]),
         };
         let _ = crate::mcp_register::register_operator(
             &self.workspace,
@@ -229,7 +235,7 @@ impl App {
             "tui",
         );
         self.dirty = false;
-        self.push_log("saved .operator.toml".into());
+        self.push_log("saved .operator.toml");
         Ok(())
     }
 
@@ -249,7 +255,9 @@ impl App {
         let tx2 = tx.clone();
         tokio::spawn(async move {
             if rebuild && let Err(error) = crate::code_search::drop_retrieval_index(&cfg).await {
-                let _ = tx2.send(IndexEvent::Failed { reason: error });
+                let _ = tx2.send(IndexEvent::Failed {
+                    reason: crate::types::ErrorMessage::from(error),
+                });
                 return;
             }
             if crate::code_search::LocalCodeIndex::build_with_events(&cfg, tx2.clone())
@@ -262,9 +270,9 @@ impl App {
             }
         });
         self.push_log(if rebuild {
-            "index: rebuild started".into()
+            "index: rebuild started"
         } else {
-            "index: started".into()
+            "index: started"
         });
     }
 
@@ -342,7 +350,7 @@ impl App {
         }
         for event in watch_events {
             for path in event.paths.iter().take(5) {
-                if let Ok(rel) = path.strip_prefix(&self.workspace) {
+                if let Ok(rel) = path.strip_prefix(self.workspace.as_path()) {
                     let rel = rel.to_string_lossy();
                     if rel.starts_with(".git")
                         || rel.contains("target/")
@@ -357,11 +365,12 @@ impl App {
         }
     }
 
-    fn push_log(&mut self, line: String) {
-        self.log.push(format!(
-            "{:>6.1}s  {line}",
-            self.started.elapsed().as_secs_f64()
-        ));
+    fn push_log(&mut self, line: impl Into<SourceText>) {
+        self.log.push(SourceText::new(format!(
+            "{:>6.1}s  {}",
+            self.started.elapsed().as_secs_f64(),
+            line.into()
+        )));
         if self.log.len() > 200 {
             self.log.remove(0);
         }
@@ -429,11 +438,11 @@ impl App {
         let mut current = Some(node.path.as_path());
         while let Some(path) = current {
             let rel = path
-                .strip_prefix(&self.workspace)
+                .strip_prefix(self.workspace.as_path())
                 .unwrap_or(path)
                 .to_string_lossy()
                 .to_string();
-            if let Some(state) = self.explicit.get(&rel) {
+            if let Some(state) = self.explicit.get(rel.as_str()) {
                 return Some(*state);
             }
             current = self
@@ -449,7 +458,7 @@ impl App {
         let Some(node) = self.selected_tree_node().cloned() else {
             return;
         };
-        let current = self.explicit.get(&node.rel).copied();
+        let current = self.explicit.get(node.rel.as_str()).copied();
         let next = match current {
             None => Some(Selection::Include),
             Some(Selection::Include) => Some(Selection::Exclude),
@@ -520,7 +529,7 @@ impl App {
             KeyCode::Char('q') | KeyCode::Esc => {
                 if self.dirty && !self.quit_armed {
                     self.quit_armed = true;
-                    self.push_log("unsaved changes — q again to quit".into());
+                    self.push_log("unsaved changes — q again to quit");
                 } else {
                     self.should_quit = true;
                 }
@@ -547,14 +556,11 @@ impl App {
             }
             KeyCode::Tab => {
                 self.focus = !self.focus;
-                self.push_log(
-                    if self.focus {
-                        "focus: languages"
-                    } else {
-                        "focus: workspace tree"
-                    }
-                    .into(),
-                );
+                self.push_log(if self.focus {
+                    "focus: languages"
+                } else {
+                    "focus: workspace tree"
+                });
             }
             KeyCode::Up => {
                 if self.tab == Tab::Sources && !self.focus {
@@ -879,7 +885,7 @@ impl App {
             .rev()
             .take(30)
             .rev()
-            .map(|l| Line::from(l.clone()))
+            .map(|l| Line::from(l.as_str()))
             .collect();
         frame.render_widget(
             Paragraph::new(log).block(Block::default().borders(Borders::ALL).title("events")),
@@ -996,14 +1002,14 @@ impl App {
         }
     }
 
-    fn includes(&self) -> Vec<String> {
+    fn includes(&self) -> Vec<RepoPath> {
         self.explicit
             .iter()
             .filter(|(_, s)| **s == Selection::Include)
             .map(|(p, _)| p.clone())
             .collect()
     }
-    fn excludes(&self) -> Vec<String> {
+    fn excludes(&self) -> Vec<RepoPath> {
         self.explicit
             .iter()
             .filter(|(_, s)| **s == Selection::Exclude)
@@ -1046,7 +1052,7 @@ fn describe_event(event: &IndexEvent) -> String {
 fn progress_ratio(event: &IndexEvent) -> Option<f64> {
     match event {
         IndexEvent::HashProgress { done, total, .. } if *total > 0 => {
-            Some(*done as f64 / *total as f64)
+            Some(done.get() as f64 / total.get() as f64)
         }
         IndexEvent::FileIndexed { .. } => Some(0.7),
         IndexEvent::Done { .. } => Some(1.0),
@@ -1095,11 +1101,12 @@ fn build_tree(root: &Path) -> Vec<Node> {
             {
                 continue;
             }
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+            let rel = RepoPath::from(
+                path.strip_prefix(root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .into_owned(),
+            );
             let language = if is_dir {
                 None
             } else {
@@ -1113,7 +1120,7 @@ fn build_tree(root: &Path) -> Vec<Node> {
                 depth,
                 parent: parent.map(Path::to_path_buf),
                 language,
-                files: 0,
+                files: FileCount::default(),
             });
             if is_dir {
                 walk(root, &path, depth + 1, Some(&path), out);
@@ -1130,7 +1137,7 @@ fn build_tree(root: &Path) -> Vec<Node> {
             .filter(|n| !n.is_dir && n.path.starts_with(&path))
             .count();
         if nodes[index].is_dir {
-            nodes[index].files = count;
+            nodes[index].files = FileCount::new(count);
         }
     }
     nodes
@@ -1184,8 +1191,12 @@ async fn run_app(mut app: App) -> Result<()> {
 }
 
 pub async fn run_init(args: InitArgs) -> Result<()> {
-    let root = args.workspace_root.unwrap_or_else(|| PathBuf::from("."));
-    let workspace = std::fs::canonicalize(&root).unwrap_or(root);
+    let root = args
+        .workspace_root
+        .unwrap_or_else(|| WorkspaceRoot::from("."));
+    let workspace = std::fs::canonicalize(root.as_path())
+        .map(WorkspaceRoot::from)
+        .unwrap_or(root);
     let detected = languages::detect(&workspace);
     if detected.is_empty() {
         return Err(Error::Config(format!(
@@ -1195,8 +1206,9 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         )));
     }
     let mut app = App::new(workspace, "init", detected);
-    if let Some(raw) = args.languages.as_deref() {
+    if let Some(raw) = args.languages.as_ref() {
         let chosen: BTreeSet<LanguageId> = raw
+            .as_str()
             .split(',')
             .filter_map(|id| LanguageId::parse(id.trim()))
             .collect();
@@ -1206,22 +1218,36 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     } else if args.all_supported {
         app.selected_languages = languages::supported_ids().into_iter().collect();
     }
-    if let Some(raw) = args.include.as_deref() {
-        for path in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+    if let Some(raw) = args.include.as_ref() {
+        for path in raw
+            .as_str()
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
             app.explicit.insert(
-                path.trim_start_matches("./")
-                    .trim_end_matches('/')
-                    .to_string(),
+                RepoPath::from(
+                    path.trim_start_matches("./")
+                        .trim_end_matches('/')
+                        .to_string(),
+                ),
                 Selection::Include,
             );
         }
     }
-    if let Some(raw) = args.exclude.as_deref() {
-        for path in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+    if let Some(raw) = args.exclude.as_ref() {
+        for path in raw
+            .as_str()
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
             app.explicit.insert(
-                path.trim_start_matches("./")
-                    .trim_end_matches('/')
-                    .to_string(),
+                RepoPath::from(
+                    path.trim_start_matches("./")
+                        .trim_end_matches('/')
+                        .to_string(),
+                ),
                 Selection::Exclude,
             );
         }
@@ -1230,8 +1256,10 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     run_app(app).await
 }
 
-pub async fn run_reindex(workspace: PathBuf, rebuild: bool) -> Result<()> {
-    let workspace = std::fs::canonicalize(&workspace).unwrap_or(workspace);
+pub async fn run_reindex(workspace: WorkspaceRoot, rebuild: bool) -> Result<()> {
+    let workspace = std::fs::canonicalize(workspace.as_path())
+        .map(WorkspaceRoot::from)
+        .unwrap_or(workspace);
     if WorkspaceConfig::load(&workspace)?.is_none() {
         return Err(Error::Config(
             "no .operator.toml; run `operator init` first".into(),
@@ -1246,8 +1274,12 @@ pub async fn run_reindex(workspace: PathBuf, rebuild: bool) -> Result<()> {
 }
 
 pub async fn run(args: TuiArgs) -> Result<()> {
-    let root = args.workspace_root.unwrap_or_else(|| PathBuf::from("."));
-    let workspace = std::fs::canonicalize(&root).unwrap_or(root);
+    let root = args
+        .workspace_root
+        .unwrap_or_else(|| WorkspaceRoot::from("."));
+    let workspace = std::fs::canonicalize(root.as_path())
+        .map(WorkspaceRoot::from)
+        .unwrap_or(root);
     if WorkspaceConfig::load(&workspace)?.is_none() {
         return Err(Error::Config(
             "no .operator.toml; run `operator init` first".into(),

@@ -1,22 +1,26 @@
 //! `operator serve`: stdio MCP only.
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cli::ServeArgs;
 use crate::error::{Error, Result};
 use crate::mcp_register;
+use crate::types::{Argv, CommandArg, WorkspaceRoot};
 use crate::workspace_config::WorkspaceConfig;
 
 pub async fn run(args: ServeArgs) -> Result<()> {
-    let root = args.workspace_root.unwrap_or_else(|| PathBuf::from("."));
-    let workspace = std::fs::canonicalize(&root).unwrap_or(root);
+    let root = args
+        .workspace_root
+        .unwrap_or_else(|| WorkspaceRoot::from("."));
+    let workspace = std::fs::canonicalize(&root)
+        .map(WorkspaceRoot::from)
+        .unwrap_or(root);
     let ws = WorkspaceConfig::load(&workspace)?
         .ok_or_else(|| Error::Config("no .operator.toml; run `operator init` first".into()))?;
     let cfg = ws.into_config(&workspace);
     validate(&cfg)?;
     if !args.no_register {
         let transport = mcp_register::Transport::Stdio {
-            argv: vec!["serve".into()],
+            argv: Argv::new(vec![CommandArg::from("serve")]),
         };
         let _ = mcp_register::register_operator(
             &workspace,

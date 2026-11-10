@@ -13,32 +13,35 @@ use ignore::WalkBuilder;
 use serde::Serialize;
 
 use crate::languages;
-use crate::types::LanguageId;
+use crate::types::{
+    ColumnNumber, LanguageId, Limit, LineNumber, PathFilter, PathsFilter, PatternText, RepoPath,
+    RuleText, Signature, SourceText, SymbolKind, SymbolName,
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CodeMatch {
-    pub path: String,
-    pub language: String,
-    pub line: usize,
-    pub column: usize,
-    pub end_line: usize,
-    pub text: String,
+    pub path: RepoPath,
+    pub language: LanguageId,
+    pub line: LineNumber,
+    pub column: ColumnNumber,
+    pub end_line: LineNumber,
+    pub text: SourceText,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OutlineSymbol {
-    pub path: String,
-    pub language: String,
-    pub name: String,
-    pub kind: String,
-    pub line: usize,
-    pub signature: String,
+    pub path: RepoPath,
+    pub language: LanguageId,
+    pub name: SymbolName,
+    pub kind: SymbolKind,
+    pub line: LineNumber,
+    pub signature: Signature,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OutlineFile {
-    pub path: String,
-    pub language: String,
+    pub path: RepoPath,
+    pub language: LanguageId,
     pub symbols: Vec<OutlineSymbol>,
 }
 
@@ -96,10 +99,10 @@ fn walk(
 pub fn search(
     root: &Path,
     selected: &[LanguageId],
-    pattern: Option<&str>,
-    rule: Option<&str>,
-    path_filter: Option<&str>,
-    limit: usize,
+    pattern: Option<&PatternText>,
+    rule: Option<&RuleText>,
+    path_filter: Option<&PathsFilter>,
+    limit: Limit,
 ) -> Result<Vec<CodeMatch>, String> {
     if pattern.is_some() == rule.is_some() {
         return Err("exactly one of `pattern` or `rule` is required".into());
@@ -109,8 +112,8 @@ pub fn search(
         return Err("no languages selected".into());
     }
     let mut out = Vec::new();
-    for (path, lang) in walk(root, &languages, path_filter) {
-        if out.len() >= limit {
+    for (path, lang) in walk(root, &languages, path_filter.map(PathsFilter::as_str)) {
+        if out.len() >= limit.get() {
             break;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {
@@ -124,12 +127,14 @@ pub fn search(
             .into_owned();
         let mut matched: Vec<NodeMatch<'_, _>> = Vec::new();
         if let Some(pattern) = pattern {
-            let pattern = Pattern::new(pattern, lang);
+            let pattern = Pattern::new(pattern.as_str(), lang);
             matched.extend(ast.root().find_all(&pattern));
         } else if let Some(rule) = rule {
-            let parsed =
-                ast_grep_config::from_yaml_string::<SupportLang>(rule, &GlobalRules::default())
-                    .map_err(|e| format!("rule parse failed: {e}"))?;
+            let parsed = ast_grep_config::from_yaml_string::<SupportLang>(
+                rule.as_str(),
+                &GlobalRules::default(),
+            )
+            .map_err(|e| format!("rule parse failed: {e}"))?;
             let scan = CombinedScan::new(parsed.iter().collect());
             let result = scan.scan(&ast, false);
             for (_, matches) in result.matches {
@@ -137,18 +142,18 @@ pub fn search(
             }
         }
         for m in matched {
-            if out.len() >= limit {
+            if out.len() >= limit.get() {
                 break;
             }
             let start = m.start_pos();
             let end = m.end_pos();
             out.push(CodeMatch {
-                path: rel.clone(),
-                language: languages::canonical_id(lang).to_string(),
-                line: start.line() + 1,
-                column: 1,
-                end_line: end.line() + 1,
-                text: m.text().to_string(),
+                path: RepoPath::from(rel.clone()),
+                language: LanguageId::from_lang(lang),
+                line: LineNumber::new(start.line() as u32 + 1),
+                column: ColumnNumber::new(1),
+                end_line: LineNumber::new(end.line() as u32 + 1),
+                text: SourceText::new(m.text().to_string()),
             });
         }
     }
@@ -183,8 +188,8 @@ fn outline_extractors() -> &'static BTreeMap<&'static str, CombinedExtractors<Su
 pub fn outline(
     root: &Path,
     selected: &[LanguageId],
-    path_filter: Option<&str>,
-    limit: usize,
+    path_filter: Option<&PathFilter>,
+    limit: Limit,
 ) -> Result<Vec<OutlineFile>, String> {
     let languages = selected_languages(selected);
     if languages.is_empty() {
@@ -193,8 +198,8 @@ pub fn outline(
     let extractors = outline_extractors();
     let mut files = Vec::new();
     let mut symbols = 0usize;
-    for (path, lang) in walk(root, &languages, path_filter) {
-        if symbols >= limit {
+    for (path, lang) in walk(root, &languages, path_filter.map(PathFilter::as_str)) {
+        if symbols >= limit.get() {
             break;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {
@@ -207,22 +212,22 @@ pub fn outline(
             .to_string_lossy()
             .into_owned();
         let mut file = OutlineFile {
-            path: rel,
-            language: languages::canonical_id(lang).to_string(),
+            path: RepoPath::from(rel),
+            language: LanguageId::from_lang(lang),
             symbols: Vec::new(),
         };
         if let Some(extractor) = extractors.get(languages::canonical_id(lang)) {
             for item in extractor.extract(ast.root()) {
-                if symbols >= limit {
+                if symbols >= limit.get() {
                     break;
                 }
                 file.symbols.push(OutlineSymbol {
                     path: file.path.clone(),
                     language: file.language.clone(),
-                    name: item.entry.name.to_string(),
-                    kind: format!("{:?}", item.entry.symbol_type),
-                    line: item.entry.range.start.line + 1,
-                    signature: item.entry.signature.to_string(),
+                    name: SymbolName::new(item.entry.name.to_string()),
+                    kind: SymbolKind::new(format!("{:?}", item.entry.symbol_type)),
+                    line: LineNumber::new(item.entry.range.start.line as u32 + 1),
+                    signature: Signature::new(item.entry.signature.to_string()),
                 });
                 symbols += 1;
             }
@@ -249,14 +254,17 @@ mod tests {
     #[test]
     fn pattern_search_is_language_scoped_and_bounded() {
         let dir = fixture();
-        let selected = vec![LanguageId::from("rust"), LanguageId::from("go")];
+        let selected = vec![
+            LanguageId::parse("rust").expect("catalog id"),
+            LanguageId::parse("go").expect("catalog id"),
+        ];
         let hits = search(
             dir.path(),
             &selected,
-            Some("fn $NAME() { $$$B }"),
+            Some(&PatternText::from("fn $NAME() { $$$B }")),
             None,
             None,
-            10,
+            Limit::new(10),
         )
         .unwrap();
         assert_eq!(hits.len(), 1);
@@ -266,11 +274,19 @@ mod tests {
     #[test]
     fn rule_search_works_and_outline_falls_back_for_dart() {
         let dir = fixture();
-        let selected = vec![LanguageId::from("dart")];
+        let selected = vec![LanguageId::parse("dart").expect("catalog id")];
         let rule = "id: any-fn\nlanguage: Dart\nrule:\n  pattern: int $N($$$A) => $$$B;";
-        let hits = search(dir.path(), &selected, None, Some(rule), None, 10).unwrap();
+        let hits = search(
+            dir.path(),
+            &selected,
+            None,
+            Some(&RuleText::from(rule)),
+            None,
+            Limit::new(10),
+        )
+        .unwrap();
         assert_eq!(hits.len(), 1);
-        let files = outline(dir.path(), &selected, None, 10).unwrap();
+        let files = outline(dir.path(), &selected, None, Limit::new(10)).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].language, "dart");
     }

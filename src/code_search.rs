@@ -57,6 +57,12 @@
 
 use crate::chunk_context::{ChunkEnrichment, context_prefix, enclosing_symbols, module_path_of};
 use crate::config::Config;
+use crate::types::{
+    Blend, CacheDir, CandidateCount, ChunkCount, ChunkId, ChunkIndex, CrateName, DualRoute,
+    DurationMs, Embedding, ErrorMessage, FileCount, FileHash, FtsDegraded, FusionGate, IncludePath,
+    LanguageLabel, LineNumber, ManifestPath, QueryExpansion, QueryLogPath, QueryRouting, RepoPath,
+    RerankContext, RerankEnabled, RowCount, Score, SourceText, TableName, UnixSeconds, Weight,
+};
 use lancedb::query::{ExecutableQuery, QueryBase};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -259,7 +265,11 @@ pub const FTS_TOKEN_COLUMN: &str = "fts_tokens";
 /// column is populated in every row no matter which tokenizer mode built the
 /// table.
 pub fn fts_text_of(chunk: &LocalChunk) -> String {
-    crate::retrieval::fts_index_text(&chunk.content, &chunk.path, &chunk.crate_name)
+    crate::retrieval::fts_index_text(
+        chunk.content.as_str(),
+        chunk.path.as_str(),
+        chunk.crate_name.as_str(),
+    )
 }
 
 /// The FTS query text (E3/B): the identifier expansion, so the indexed
@@ -275,19 +285,19 @@ pub const DOCUMENT_INDEX_MAX_CHARS: usize = 2_000_000;
 /// One chunk stored in LanceDB (the spec's data model plus `start_line`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocalChunk {
-    pub id: String,
-    pub path: String,
-    pub chunk_index: u32,
+    pub id: ChunkId,
+    pub path: RepoPath,
+    pub chunk_index: ChunkIndex,
     /// 1-based line the chunk starts at in its file (LSP tool anchor).
-    pub start_line: u32,
-    pub content: String,
-    pub language: String,
-    pub file_hash: String,
+    pub start_line: LineNumber,
+    pub content: SourceText,
+    pub language: LanguageLabel,
+    pub file_hash: FileHash,
     /// Cargo crate this chunk's file belongs to (package name, or
     /// [`crate_map::NO_CRATE`] outside every crate). The LanceDB filter
     /// column behind `search_vector_store`'s `crate_name` argument.
-    pub crate_name: String,
-    pub vector: Vec<f32>,
+    pub crate_name: CrateName,
+    pub vector: Embedding,
 }
 
 // ── Pure ingestion helpers ──────────────────────────────────────────────────
@@ -569,21 +579,21 @@ pub(crate) fn is_excluded_tree_path(path: &Path) -> bool {
 }
 
 /// SHA-256 hex of `text` (content addressing for incremental ingestion).
-pub fn file_hash_of(text: &str) -> String {
+pub fn file_hash_of(text: &str) -> FileHash {
     let mut h = Sha256::new();
     h.update(text.as_bytes());
-    crate::hash::hex_digest(h.finalize())
+    FileHash::new(crate::hash::hex_digest(h.finalize()))
 }
 
 /// Stable chunk id: hash of (path, chunk index, file content hash).
-pub fn chunk_id(path: &str, chunk_index: u32, file_hash: &str) -> String {
+pub fn chunk_id(path: &str, chunk_index: u32, file_hash: &str) -> ChunkId {
     let mut h = Sha256::new();
     h.update(path.as_bytes());
     h.update([0u8]);
     h.update(chunk_index.to_le_bytes());
     h.update([0u8]);
     h.update(file_hash.as_bytes());
-    crate::hash::hex_digest(h.finalize())
+    ChunkId::new(crate::hash::hex_digest(h.finalize()))
 }
 
 /// The marker [`cap_tokens`] appends when it cuts a chunk at the measured
@@ -613,13 +623,14 @@ fn cap_document_text(markdown: String) -> String {
     markdown.chars().take(DOCUMENT_INDEX_MAX_CHARS).collect()
 }
 
-/// Language label from a file extension.
-fn language_of(path: &str) -> String {
+/// Language label from a file extension (the stored `language` column), or
+/// `text` for an extensionless file.
+fn language_of(path: &str) -> LanguageLabel {
     Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("text")
-        .to_string()
+        .into()
 }
 
 /// The derived-context prefix one chunk carries, from its own first line.
@@ -638,7 +649,7 @@ pub(crate) fn chunk_prefix(
     if enrichment.is_bare() {
         return String::new();
     }
-    let symbols = if enrichment.symbols {
+    let symbols = if enrichment.symbols.is_on() {
         enclosing_symbols(text, start_line)
     } else {
         Vec::new()
@@ -726,16 +737,16 @@ pub fn sliding_window_chunks_with(
         let content = cap_tokens(&format!("{prefix}{window}"), EMBEDDER_MAX_TOKENS);
         chunks.push(LocalChunk {
             id: chunk_id(path, index, file_hash),
-            path: path.to_string(),
-            chunk_index: index,
-            start_line,
-            content,
+            path: RepoPath::from(path),
+            chunk_index: ChunkIndex::new(index),
+            start_line: LineNumber::new(start_line),
+            content: SourceText::new(content),
             language: language_of(path),
-            file_hash: file_hash.to_string(),
+            file_hash: FileHash::from(file_hash),
             // Chunking is crate-agnostic; `build` stamps the crate once the
             // workspace's crate boundaries are known.
-            crate_name: String::new(),
-            vector: Vec::new(),
+            crate_name: CrateName::default(),
+            vector: Embedding::default(),
         });
         index += 1;
         if end >= lines.len() {
@@ -813,9 +824,9 @@ pub fn annotate_document_chunks(chunks: &mut [LocalChunk], path: &str) {
     let header =
         format!("File: {path} (converted document — line numbers refer to the converted Markdown)");
     for chunk in chunks.iter_mut() {
-        chunk.language = "markdown".to_string();
+        chunk.language = LanguageLabel::from("markdown");
         if let Some(rest) = chunk.content.strip_prefix(&format!("File: {path}")) {
-            chunk.content = format!("{header}{rest}");
+            chunk.content = SourceText::new(format!("{header}{rest}"));
         }
     }
 }
@@ -896,15 +907,15 @@ pub fn xberg_chunks_with(
             let content = cap_tokens(&format!("{prefix}{}", c.content), EMBEDDER_MAX_TOKENS);
             LocalChunk {
                 id: chunk_id(path, i as u32, file_hash),
-                path: path.to_string(),
-                chunk_index: i as u32,
-                start_line,
-                content,
+                path: RepoPath::from(path),
+                chunk_index: ChunkIndex::new(i as u32),
+                start_line: LineNumber::new(start_line),
+                content: SourceText::new(content),
                 language: language_of(path),
-                file_hash: file_hash.to_string(),
+                file_hash: FileHash::from(file_hash),
                 // Stamped by `build`, exactly like the sliding-window path.
-                crate_name: String::new(),
-                vector: Vec::new(),
+                crate_name: CrateName::default(),
+                vector: Embedding::default(),
             }
         })
         .collect()
@@ -969,7 +980,7 @@ pub fn symbol_chunks_with(
     let ranges: Vec<(usize, usize)> = spans
         .iter()
         .map(|span| {
-            let a = span.start_line.saturating_sub(1) as usize;
+            let a = span.start_line.saturating_sub(1).get() as usize;
             let b = a + span.text.lines().count().saturating_sub(1);
             (a, b.min(all_lines.len().saturating_sub(1)))
         })
@@ -992,14 +1003,14 @@ pub fn symbol_chunks_with(
         let content = cap_tokens(&format!("{prefix}{body}"), EMBEDDER_MAX_TOKENS);
         chunks.push(LocalChunk {
             id: chunk_id(path, *index, file_hash),
-            path: path.to_string(),
-            chunk_index: *index,
-            start_line,
-            content,
+            path: RepoPath::from(path),
+            chunk_index: ChunkIndex::new(*index),
+            start_line: LineNumber::new(start_line),
+            content: SourceText::new(content),
             language: language_of(path),
-            file_hash: file_hash.to_string(),
-            crate_name: String::new(),
-            vector: Vec::new(),
+            file_hash: FileHash::from(file_hash),
+            crate_name: CrateName::default(),
+            vector: Embedding::default(),
         });
         *index += 1;
     };
@@ -1056,14 +1067,14 @@ pub fn symbol_chunks_with(
                 let content = cap_tokens(&format!("{prefix}{body}"), EMBEDDER_MAX_TOKENS);
                 chunks.push(LocalChunk {
                     id: chunk_id(path, index, file_hash),
-                    path: path.to_string(),
-                    chunk_index: index,
-                    start_line,
-                    content,
+                    path: RepoPath::from(path),
+                    chunk_index: ChunkIndex::new(index),
+                    start_line: LineNumber::new(start_line),
+                    content: SourceText::new(content),
                     language: language_of(path),
-                    file_hash: file_hash.to_string(),
-                    crate_name: String::new(),
-                    vector: Vec::new(),
+                    file_hash: FileHash::from(file_hash),
+                    crate_name: CrateName::default(),
+                    vector: Embedding::default(),
                 });
                 index += 1;
                 if we >= b {
@@ -1287,26 +1298,26 @@ pub fn manifest_delta(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrievalIndexStatus {
     /// The LanceDB table this configuration resolves to.
-    pub table: String,
+    pub table: TableName,
     /// Where the table and its manifest live.
-    pub cache_dir: PathBuf,
+    pub cache_dir: CacheDir,
     /// The ingestion manifest that decides what a rebuild would re-embed.
-    pub manifest_path: PathBuf,
+    pub manifest_path: ManifestPath,
     /// Files the manifest records as already embedded.
-    pub manifest_files: usize,
+    pub manifest_files: FileCount,
     /// Rows in the table, or `None` when it does not exist yet.
-    pub rows: Option<usize>,
+    pub rows: Option<RowCount>,
     /// The explicit corpus includes this configuration resolved to, canonical
     /// and sorted (empty when the corpus is the default walk alone).
-    pub includes: Vec<String>,
+    pub includes: Vec<IncludePath>,
     /// Selected source files currently on disk.
-    pub total_files: usize,
+    pub total_files: FileCount,
     /// Files whose current hash is in the manifest.
-    pub fresh_files: usize,
+    pub fresh_files: FileCount,
     /// Files changed since the manifest was written.
-    pub stale_files: usize,
-    /// Unix seconds of the manifest's last write, when it exists.
-    pub indexed_at: Option<u64>,
+    pub stale_files: FileCount,
+    /// Unix milliseconds of the manifest's last write, when it exists.
+    pub indexed_at: Option<UnixSeconds>,
 }
 
 /// Inspect the local retrieval index **without** building or embedding.
@@ -1321,7 +1332,7 @@ pub async fn retrieval_index_status(cfg: &Config) -> RetrievalIndexStatus {
         .and_then(|meta| meta.modified())
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs());
+        .map(|duration| UnixSeconds::new(duration.as_secs()));
     let mut corpus = discover_source_files(&cfg.workspace_root);
     corpus.retain(|path| selected_source(cfg, path) && !excluded_by(cfg, path));
     let total_files = corpus.len();
@@ -1335,7 +1346,10 @@ pub async fn retrieval_index_status(cfg: &Config) -> RetrievalIndexStatus {
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
         };
-        if manifest.get(&rel) == Some(&file_hash_of(&text)) {
+        if manifest
+            .get(&rel)
+            .is_some_and(|hash| hash == file_hash_of(&text).as_str())
+        {
             fresh_files += 1;
         }
     }
@@ -1344,8 +1358,8 @@ pub async fn retrieval_index_status(cfg: &Config) -> RetrievalIndexStatus {
             .execute()
             .await
         {
-            Ok(db) => match db.open_table(&table).execute().await {
-                Ok(open) => open.count_rows(None).await.ok(),
+            Ok(db) => match db.open_table(table.as_str()).execute().await {
+                Ok(open) => open.count_rows(None).await.ok().map(RowCount::new),
                 Err(_) => None,
             },
             Err(_) => None,
@@ -1354,15 +1368,18 @@ pub async fn retrieval_index_status(cfg: &Config) -> RetrievalIndexStatus {
         None
     };
     RetrievalIndexStatus {
-        table,
-        cache_dir: cfg.retrieval_cache_dir.clone().into_path_buf(),
-        manifest_path: manifest_path(cfg),
-        manifest_files: manifest.len(),
+        table: TableName::from(table),
+        cache_dir: cfg.retrieval_cache_dir.clone(),
+        manifest_path: ManifestPath::from(manifest_path(cfg)),
+        manifest_files: FileCount::new(manifest.len()),
         rows,
-        includes: normalized_includes(&cfg.retrieval_include),
-        total_files,
-        fresh_files,
-        stale_files: total_files.saturating_sub(fresh_files),
+        includes: normalized_includes(&cfg.retrieval_include)
+            .into_iter()
+            .map(IncludePath::from)
+            .collect(),
+        total_files: FileCount::new(total_files),
+        fresh_files: FileCount::new(fresh_files),
+        stale_files: FileCount::new(total_files.saturating_sub(fresh_files)),
         indexed_at,
     }
 }
@@ -1403,11 +1420,11 @@ pub async fn drop_retrieval_index(cfg: &Config) -> Result<bool, String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RetrievalRefresh {
     /// Files whose content changed (or that are new) and were re-embedded.
-    pub embedded: usize,
+    pub embedded: FileCount,
     /// Files removed from the workspace (or the corpus) and dropped.
-    pub dropped: usize,
+    pub dropped: FileCount,
     /// Files the manifest now records as embedded.
-    pub indexed: usize,
+    pub indexed: FileCount,
 }
 
 /// Build (or incrementally refresh) the retrieval corpus index for `cfg`.
@@ -1428,9 +1445,9 @@ pub async fn refresh_retrieval_index(cfg: &Config) -> Result<RetrievalRefresh, S
     let after = load_manifest(cfg);
     let (embedded, dropped) = manifest_delta(&before, &after);
     Ok(RetrievalRefresh {
-        embedded,
-        dropped,
-        indexed: after.len(),
+        embedded: FileCount::new(embedded),
+        dropped: FileCount::new(dropped),
+        indexed: FileCount::new(after.len()),
     })
 }
 
@@ -1792,13 +1809,13 @@ pub fn fuse_scored(
 #[allow(dead_code)]
 pub struct StageHit {
     /// The chunk id the stage ranked.
-    pub id: String,
+    pub id: ChunkId,
     /// Workspace-relative file the chunk belongs to.
-    pub path: String,
+    pub path: RepoPath,
     /// 1-based line the chunk starts at.
-    pub start_line: u32,
+    pub start_line: LineNumber,
     /// Stage-native score (see the struct docs).
-    pub score: f32,
+    pub score: Score,
 }
 
 /// The per-stage candidate trace of one hybrid search: each list best-first and
@@ -1831,7 +1848,7 @@ pub struct StageTrace {
 #[allow(dead_code)]
 struct HybridSearchCore {
     /// Delivered `(chunk, score)` pairs, best-first.
-    chunks: Vec<(LocalChunk, f32)>,
+    chunks: Vec<(LocalChunk, Score)>,
     /// Dense stage candidates (pre-fusion, capped at [`STAGE_CANDIDATES`]).
     dense: Vec<(String, f32)>,
     /// FTS stage candidates (empty when `fts_ok` is false).
@@ -1858,10 +1875,10 @@ pub fn project_stage_hits(
     ids.iter()
         .filter_map(|(id, score)| {
             lookup(id).map(|(path, start_line)| StageHit {
-                id: id.clone(),
-                path,
-                start_line,
-                score: *score,
+                id: ChunkId::from(id.clone()),
+                path: RepoPath::from(path),
+                start_line: LineNumber::new(start_line),
+                score: Score::new(*score),
             })
         })
         .collect()
@@ -1891,22 +1908,22 @@ pub fn rerank_top(mut ranked: Vec<(usize, f32)>, n: usize) -> Vec<(usize, f32)> 
 #[allow(dead_code)]
 pub struct SearchStageStats {
     /// Dense (vector) stage candidates.
-    pub dense_candidates: usize,
+    pub dense_candidates: CandidateCount,
     /// FTS (BM25) stage candidates.
-    pub fts_candidates: usize,
+    pub fts_candidates: CandidateCount,
     /// Distinct candidates in the dense ∪ FTS union (what fusion ranked).
-    pub fused_candidates: usize,
+    pub fused_candidates: CandidateCount,
     /// Candidates present in **both** stage lists (dense ∩ FTS) — the
     /// population the score-sum fusion can actually boost.
-    pub both_stages: usize,
+    pub both_stages: CandidateCount,
     /// Candidates actually handed to the cross-encoder (after the `by_id`
     /// lookup and the [`RERANK_CANDIDATES`] cap).
-    pub rerank_pool: usize,
+    pub rerank_pool: CandidateCount,
     /// Delivered chunks the reranker lifted from at or beyond the delivered
     /// count in the fused order.
-    pub rerank_promotions: usize,
+    pub rerank_promotions: CandidateCount,
     /// The FTS stage errored; the search served dense-only results.
-    pub fts_degraded: bool,
+    pub fts_degraded: FtsDegraded,
 }
 
 /// The result of a hybrid search together with its per-stage accounting.
@@ -1915,7 +1932,7 @@ pub struct SearchStageStats {
 pub struct SearchOutcome {
     /// The delivered `(chunk, score)` pairs, best-first — byte-identical to
     /// [`LocalCodeIndex::hybrid_search`].
-    pub chunks: Vec<(LocalChunk, f32)>,
+    pub chunks: Vec<(LocalChunk, Score)>,
     /// What the stages did to produce them.
     pub stages: SearchStageStats,
 }
@@ -1946,16 +1963,18 @@ pub fn search_stage_stats(
     fused.extend(fts_ids.iter().copied());
     let delivered = delivered_candidate_indices.len();
     SearchStageStats {
-        dense_candidates: dense.len(),
-        fts_candidates: fts.len(),
-        fused_candidates: fused.len(),
-        both_stages: dense_ids.intersection(&fts_ids).count(),
-        rerank_pool,
-        rerank_promotions: delivered_candidate_indices
-            .iter()
-            .filter(|idx| **idx >= delivered)
-            .count(),
-        fts_degraded: !fts_ok,
+        dense_candidates: CandidateCount::new(dense.len()),
+        fts_candidates: CandidateCount::new(fts.len()),
+        fused_candidates: CandidateCount::new(fused.len()),
+        both_stages: CandidateCount::new(dense_ids.intersection(&fts_ids).count()),
+        rerank_pool: CandidateCount::new(rerank_pool),
+        rerank_promotions: CandidateCount::new(
+            delivered_candidate_indices
+                .iter()
+                .filter(|idx| **idx >= delivered)
+                .count(),
+        ),
+        fts_degraded: FtsDegraded::new(!fts_ok),
     }
 }
 
@@ -2018,18 +2037,18 @@ pub fn dual_route_applies(has_secondary: bool, route_enabled: bool, query: &str)
 pub struct LocalCodeIndex {
     table: lancedb::Table,
     /// Chunk id → chunk (vector left empty here; memory-only for lexical hits).
-    by_id: HashMap<String, LocalChunk>,
+    by_id: HashMap<ChunkId, LocalChunk>,
     models: Arc<dyn crate::embedding::Embedded>,
     /// Whether the cross-encoder rerank stage runs
     /// (`--retrieval-rerank-enabled`). When off, the fused order is delivered
     /// directly and no rerank request is sent.
-    rerank_enabled: bool,
+    rerank_enabled: RerankEnabled,
     /// Whether the cross-encoder documents get a derived `Module:` prefix.
-    rerank_context: bool,
+    rerank_context: RerankContext,
     /// Whether lexical-only candidates route the fusion to RRF.
-    fusion_gate: bool,
+    fusion_gate: FusionGate,
     /// Optional local JSONL search-query log (off by default).
-    query_log: Option<std::path::PathBuf>,
+    query_log: Option<QueryLogPath>,
     /// Which vector index the dense stage searches through
     /// (`--retrieval-vector-index`). `Exact` bypasses any trained index, so an
     /// old `IVF_PQ` table is never read through its approximation.
@@ -2037,11 +2056,11 @@ pub struct LocalCodeIndex {
     /// Candidates fetched per stage (dense and FTS) before fusion
     /// (`--retrieval-stage-candidates`; the shipped [`STAGE_CANDIDATES`] by
     /// default).
-    stage_candidates: usize,
+    stage_candidates: CandidateCount,
     /// Candidates passed to the cross-encoder after fusion
     /// (`--retrieval-rerank-candidates`; the shipped [`RERANK_CANDIDATES`] by
     /// default).
-    rerank_candidates: usize,
+    rerank_candidates: CandidateCount,
     /// Which fusion combines the two stage lists (R7,
     /// `--retrieval-fusion`). Cached on the index for the same reason the
     /// counts are: the search methods take only the query, so reading it from
@@ -2053,16 +2072,16 @@ pub struct LocalCodeIndex {
     rerank_score_norm: RerankScoreNorm,
     /// Weight of the cross-encoder score when blending it with the fused
     /// retrieval score (`0.0` = pure reranker order).
-    rerank_blend: f32,
+    rerank_blend: Blend,
     /// Whether the dense query carries the code-aware identifier tokens.
-    query_expansion: bool,
+    query_expansion: QueryExpansion,
     /// Whether symbol-shaped queries use reciprocal-rank fusion.
-    query_routing: bool,
+    query_routing: QueryRouting,
     /// Optional secondary index (its own table + embedder) for symbol-shaped
     /// queries; built only when a dual embed model is configured.
     secondary: Option<Arc<LocalCodeIndex>>,
     /// Whether symbol-shaped queries are routed to the secondary index.
-    dual_route: bool,
+    dual_route: DualRoute,
 }
 
 /// One JSONL record for the opt-in local query log: the query text, scope,
@@ -2206,8 +2225,18 @@ fn chunks_to_batch(chunks: &[LocalChunk]) -> Result<arrow_array::RecordBatch, St
     let schema = Arc::new(code_schema(dim));
     let ids = StringArray::from(chunks.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
     let paths = StringArray::from(chunks.iter().map(|c| c.path.as_str()).collect::<Vec<_>>());
-    let indexes = UInt32Array::from(chunks.iter().map(|c| c.chunk_index).collect::<Vec<_>>());
-    let starts = UInt32Array::from(chunks.iter().map(|c| c.start_line).collect::<Vec<_>>());
+    let indexes = UInt32Array::from(
+        chunks
+            .iter()
+            .map(|c| c.chunk_index.get())
+            .collect::<Vec<_>>(),
+    );
+    let starts = UInt32Array::from(
+        chunks
+            .iter()
+            .map(|c| c.start_line.get())
+            .collect::<Vec<_>>(),
+    );
     let contents = StringArray::from(
         chunks
             .iter()
@@ -2327,7 +2356,7 @@ async fn insert_file_chunks(
             // no-op in practice; on a degenerate vector it keeps the raw values
             // rather than storing NaN.
             let _ = l2_normalize(&mut vector);
-            chunk.vector = vector;
+            chunk.vector = Embedding::from(vector);
             chunk
         })
         .collect();
@@ -2355,38 +2384,38 @@ async fn insert_file_chunks(
 pub enum IndexEvent {
     DiscoverStart,
     Discovered {
-        files: usize,
+        files: FileCount,
     },
     Languages {
         languages: usize,
     },
     HashProgress {
-        done: usize,
-        total: usize,
-        changed: usize,
+        done: FileCount,
+        total: FileCount,
+        changed: FileCount,
     },
     TableReady {
-        table: String,
+        table: TableName,
     },
     FileIndexed {
-        path: String,
-        chunks: usize,
+        path: RepoPath,
+        chunks: ChunkCount,
     },
     FileSkipped {
-        path: String,
-        reason: String,
+        path: RepoPath,
+        reason: ErrorMessage,
     },
     ManifestSaved {
-        files: usize,
+        files: FileCount,
     },
     Done {
-        embedded: usize,
-        dropped: usize,
-        indexed: usize,
-        elapsed_ms: u64,
+        embedded: FileCount,
+        dropped: FileCount,
+        indexed: ChunkCount,
+        elapsed_ms: DurationMs,
     },
     Failed {
-        reason: String,
+        reason: ErrorMessage,
     },
 }
 
@@ -2514,7 +2543,12 @@ impl LocalCodeIndex {
         files.sort();
         files.dedup();
         files.retain(|path| selected_source(cfg, path) && !excluded_by(cfg, path));
-        emit(events, IndexEvent::Discovered { files: files.len() });
+        emit(
+            events,
+            IndexEvent::Discovered {
+                files: FileCount::new(files.len()),
+            },
+        );
         emit(
             events,
             IndexEvent::Languages {
@@ -2603,7 +2637,7 @@ impl LocalCodeIndex {
             if is_document {
                 document_rels.insert(rel.clone());
             }
-            discovered.push((rel, hash));
+            discovered.push((rel, hash.into_inner()));
         }
         if discovered.is_empty() {
             eprintln!("  (retrieval: no readable source files)");
@@ -2669,7 +2703,7 @@ impl LocalCodeIndex {
         emit(
             events,
             IndexEvent::TableReady {
-                table: name.clone(),
+                table: TableName::from(name.clone()),
             },
         );
         // Drop rows for deleted files AND for changed files about to be
@@ -2709,13 +2743,13 @@ impl LocalCodeIndex {
                     cfg,
                     file,
                     text,
-                    &file_hash_of(text),
+                    file_hash_of(text).as_str(),
                     document_rels.contains(file),
                     &scope,
                     &crate_dir,
                 );
                 for chunk in &mut chunks {
-                    chunk.crate_name = scope.clone();
+                    chunk.crate_name = CrateName::from(scope.clone());
                 }
                 per_file.push((file.clone(), chunks));
             }
@@ -2724,7 +2758,7 @@ impl LocalCodeIndex {
                 let group = &per_file[range];
                 let texts: Vec<String> = group
                     .iter()
-                    .flat_map(|(_, chunks)| chunks.iter().map(|c| c.content.clone()))
+                    .flat_map(|(_, chunks)| chunks.iter().map(|c| c.content.as_str().to_string()))
                     .collect();
                 match embed_texts(&models, texts.clone()).await {
                     Ok(vectors) if vectors.len() == texts.len() => {
@@ -2748,8 +2782,8 @@ impl LocalCodeIndex {
                                 emit(
                                     events,
                                     IndexEvent::FileIndexed {
-                                        path: file.clone(),
-                                        chunks: count,
+                                        path: RepoPath::from(file.clone()),
+                                        chunks: ChunkCount::new(count),
                                     },
                                 );
                             }
@@ -2761,8 +2795,10 @@ impl LocalCodeIndex {
                     // cannot cost the whole batch.
                     Ok(_) | Err(_) => {
                         for (file, chunks) in group {
-                            let texts: Vec<String> =
-                                chunks.iter().map(|c| c.content.clone()).collect();
+                            let texts: Vec<String> = chunks
+                                .iter()
+                                .map(|c| c.content.as_str().to_string())
+                                .collect();
                             match embed_texts(&models, texts).await {
                                 Ok(vectors) if vectors.len() == chunks.len() => {
                                     if insert_file_chunks(
@@ -2780,8 +2816,8 @@ impl LocalCodeIndex {
                                         emit(
                                             events,
                                             IndexEvent::FileIndexed {
-                                                path: file.clone(),
-                                                chunks: chunks.len(),
+                                                path: RepoPath::from(file.clone()),
+                                                chunks: ChunkCount::new(chunks.len()),
                                             },
                                         );
                                     }
@@ -2834,7 +2870,7 @@ impl LocalCodeIndex {
         emit(
             events,
             IndexEvent::ManifestSaved {
-                files: new_manifest.len(),
+                files: FileCount::new(new_manifest.len()),
             },
         );
         let started = std::time::Instant::now();
@@ -2850,13 +2886,13 @@ impl LocalCodeIndex {
                 cfg,
                 path,
                 text,
-                &hash,
+                hash.as_str(),
                 document_rels.contains(path),
                 &crate_name,
                 &crate_dir,
             ) {
-                chunk.crate_name = crate_name.clone();
-                chunk.vector.clear();
+                chunk.crate_name = CrateName::from(crate_name.clone());
+                chunk.vector = Embedding::default();
                 by_id.insert(chunk.id.clone(), chunk);
             }
         }
@@ -2876,33 +2912,30 @@ impl LocalCodeIndex {
         emit(
             events,
             IndexEvent::Done {
-                embedded,
-                dropped: to_drop.len(),
-                indexed: by_id.len(),
-                elapsed_ms: started.elapsed().as_millis() as u64,
+                embedded: FileCount::new(embedded),
+                dropped: FileCount::new(to_drop.len()),
+                indexed: ChunkCount::new(by_id.len()),
+                elapsed_ms: DurationMs::new(started.elapsed().as_millis() as u64),
             },
         );
         Some(Arc::new(Self {
             table,
             by_id,
             models,
-            rerank_enabled: cfg.retrieval_rerank_enabled.is_on(),
-            rerank_context: cfg.retrieval_rerank_context.is_on(),
-            fusion_gate: cfg.retrieval_fusion_gate.is_on(),
-            query_log: cfg
-                .retrieval_query_log
-                .clone()
-                .map(crate::types::QueryLogPath::into_path_buf),
+            rerank_enabled: cfg.retrieval_rerank_enabled,
+            rerank_context: cfg.retrieval_rerank_context,
+            fusion_gate: cfg.retrieval_fusion_gate,
+            query_log: cfg.retrieval_query_log.clone(),
             vector_index: cfg.retrieval_vector_index,
-            stage_candidates: cfg.retrieval_stage_candidates.get(),
-            rerank_candidates: cfg.retrieval_rerank_candidates.get(),
+            stage_candidates: cfg.retrieval_stage_candidates,
+            rerank_candidates: cfg.retrieval_rerank_candidates,
             fusion: cfg.retrieval_fusion,
             rerank_score_norm: cfg.retrieval_rerank_score,
-            rerank_blend: cfg.retrieval_rerank_blend.get().clamp(0.0, 1.0),
-            query_expansion: cfg.retrieval_query_expansion.is_on(),
-            query_routing: cfg.retrieval_query_routing.is_on(),
+            rerank_blend: cfg.retrieval_rerank_blend.clamp_to(0.0, 1.0),
+            query_expansion: cfg.retrieval_query_expansion,
+            query_routing: cfg.retrieval_query_routing,
             secondary: None,
-            dual_route: cfg.retrieval_dual_route.is_on(),
+            dual_route: cfg.retrieval_dual_route,
         }))
     }
 
@@ -2921,7 +2954,7 @@ impl LocalCodeIndex {
         scope: Option<&str>,
         samples: usize,
         started: std::time::Instant,
-        chunks: &[(LocalChunk, f32)],
+        chunks: &[(LocalChunk, Score)],
     ) {
         let Some(path) = self.query_log.as_deref() else {
             return;
@@ -2929,8 +2962,8 @@ impl LocalCodeIndex {
         let mut seen = std::collections::HashSet::new();
         let paths: Vec<String> = chunks
             .iter()
-            .filter(|(chunk, _)| seen.insert(chunk.path.clone()))
-            .map(|(chunk, _)| chunk.path.clone())
+            .filter(|(chunk, _)| seen.insert(chunk.path.as_str()))
+            .map(|(chunk, _)| chunk.path.as_str().to_string())
             .collect();
         let line = query_log_line(
             query,
@@ -3008,12 +3041,12 @@ impl LocalCodeIndex {
         query: &str,
         samples: usize,
         scope: Option<&str>,
-        dense_weight: f32,
-    ) -> Result<Vec<(LocalChunk, f32)>, String> {
+        dense_weight: Weight,
+    ) -> Result<Vec<(LocalChunk, Score)>, String> {
         let secondary = self
             .secondary
             .as_ref()
-            .filter(|_| dual_route_applies(true, self.dual_route, query));
+            .filter(|_| dual_route_applies(true, self.dual_route.is_on(), query));
         if let Some(secondary) = secondary {
             return Box::pin(secondary.hybrid_search(query, samples, scope, dense_weight)).await;
         }
@@ -3039,10 +3072,10 @@ impl LocalCodeIndex {
         query: &str,
         samples: usize,
         scope: Option<&str>,
-        dense_weight: f32,
+        dense_weight: Weight,
     ) -> Result<HybridSearchCore, String> {
         let started = std::time::Instant::now();
-        let dense_query = if self.query_expansion {
+        let dense_query = if self.query_expansion.is_on() {
             format!("{query} {}", crate::retrieval::fts_query_text(query))
         } else {
             query.to_string()
@@ -3060,7 +3093,7 @@ impl LocalCodeIndex {
         let _ = l2_normalize(&mut query_vec);
 
         let dense = self
-            .dense_top_scored(&query_vec, self.stage_candidates, scope)
+            .dense_top_scored(&query_vec, self.stage_candidates.get(), scope)
             .await?;
         // FTS is a best-effort layer: if the index is missing/broken we still
         // serve dense results. Both stages consume the SAME tokenization
@@ -3069,7 +3102,7 @@ impl LocalCodeIndex {
         // column, so the two sides can never drift.
         let fts_query = fts_query_for(query);
         let (fts, fts_ok) = match self
-            .fts_top_scored(&fts_query, self.stage_candidates, scope)
+            .fts_top_scored(&fts_query, self.stage_candidates.get(), scope)
             .await
         {
             Ok(rows) => (rows, true),
@@ -3087,23 +3120,24 @@ impl LocalCodeIndex {
         // reranked list is a projection of it, so the trace's `fused` list, the
         // pool the cross-encoder actually saw, and the stats' delivered pool
         // indices cannot diverge.
-        let lexical_rescue = self.fusion_gate && lexical_stage_adds_candidates(&dense, &fts);
-        let routed = self.query_routing && is_symbol_shaped_query(query);
+        let lexical_rescue =
+            self.fusion_gate.is_on() && lexical_stage_adds_candidates(&dense, &fts);
+        let routed = self.query_routing.is_on() && is_symbol_shaped_query(query);
         let fusion = if lexical_rescue || routed {
             Fusion::Rrf
         } else {
             self.fusion
         };
-        let fused_pairs = fuse_with_mode(fusion, &dense, &fts, dense_weight);
+        let fused_pairs = fuse_with_mode(fusion, &dense, &fts, dense_weight.get());
         let pool: Vec<(String, f32)> = fused_pairs
             .iter()
-            .filter(|(id, _)| self.by_id.contains_key(id))
-            .take(self.rerank_candidates)
+            .filter(|(id, _)| self.by_id.contains_key(id.as_str()))
+            .take(self.rerank_candidates.get())
             .cloned()
             .collect();
         let candidates: Vec<LocalChunk> = pool
             .iter()
-            .filter_map(|(id, _)| self.by_id.get(id).cloned())
+            .filter_map(|(id, _)| self.by_id.get(id.as_str()).cloned())
             .collect();
         if candidates.is_empty() {
             return Ok(HybridSearchCore {
@@ -3118,15 +3152,20 @@ impl LocalCodeIndex {
 
         // Reranking is optional: when off, deliver the fused order directly
         // and make no rerank request.
-        if !self.rerank_enabled {
+        if !self.rerank_enabled.is_on() {
             let reranked_pairs: Vec<(String, f32)> = pool
                 .iter()
-                .take(samples.min(self.rerank_candidates))
+                .take(samples.min(self.rerank_candidates.get()))
                 .cloned()
                 .collect();
-            let chunks: Vec<(LocalChunk, f32)> = reranked_pairs
+            let chunks: Vec<(LocalChunk, Score)> = reranked_pairs
                 .iter()
-                .filter_map(|(id, score)| self.by_id.get(id).cloned().map(|c| (c, *score)))
+                .filter_map(|(id, score)| {
+                    self.by_id
+                        .get(id.as_str())
+                        .cloned()
+                        .map(|c| (c, Score::new(*score)))
+                })
                 .collect();
             self.log_query(query, scope, samples, started, &chunks);
             return Ok(HybridSearchCore {
@@ -3138,20 +3177,23 @@ impl LocalCodeIndex {
                 fts_ok,
             });
         }
-        let docs: Vec<String> = if self.rerank_context {
+        let docs: Vec<String> = if self.rerank_context.is_on() {
             candidates
                 .iter()
                 .map(|c| {
                     let module = if c.crate_name.is_empty() {
-                        module_hint(&c.path)
+                        module_hint(c.path.as_str())
                     } else {
-                        format!("{}::{}", c.crate_name, module_hint(&c.path))
+                        format!("{}::{}", c.crate_name, module_hint(c.path.as_str()))
                     };
                     format!("Module: {module}\n{}", c.content)
                 })
                 .collect()
         } else {
-            candidates.iter().map(|c| c.content.clone()).collect()
+            candidates
+                .iter()
+                .map(|c| c.content.as_str().to_string())
+                .collect()
         };
         let mut ranked = self.models.rerank(query.to_string(), docs.clone()).await?;
         // R10's jina finding: a reranker that returns a raw similarity is
@@ -3161,7 +3203,8 @@ impl LocalCodeIndex {
         // decided, so a delivered score can never disagree with the position it
         // was ranked at.
         normalize_rerank_scores(&mut ranked, self.rerank_score_norm);
-        if self.rerank_blend > 0.0 {
+        let blend = self.rerank_blend.get();
+        if blend > 0.0 {
             let fused: std::collections::HashMap<&str, f32> = pool
                 .iter()
                 .map(|(id, score)| (id.as_str(), *score))
@@ -3181,22 +3224,26 @@ impl LocalCodeIndex {
             }
             for (index, score) in ranked.iter_mut() {
                 let fused = fused_vals.get(*index).copied().unwrap_or(0.0);
-                *score = self.rerank_blend * *score + (1.0 - self.rerank_blend) * fused;
+                *score = blend * *score + (1.0 - blend) * fused;
             }
             ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
         }
         // Single retained cap: final results = min(user samples, rerank pool).
-        let top = rerank_top(ranked, samples.min(self.rerank_candidates));
+        let top = rerank_top(ranked, samples.min(self.rerank_candidates.get()));
         // fastembed returns relevance scores already in [0, 1] (sigmoid applied
         // server-side), so there is no extra sigmoid fold here; the canonical
         // clamp in `retrieval.rs` is the only normalization left.
         let reranked_pairs: Vec<(String, f32)> = top
             .iter()
-            .filter_map(|(idx, score)| candidates.get(*idx).map(|c| (c.id.clone(), *score)))
+            .filter_map(|(idx, score)| {
+                candidates
+                    .get(*idx)
+                    .map(|c| (c.id.as_str().to_string(), *score))
+            })
             .collect();
-        let chunks: Vec<(LocalChunk, f32)> = top
+        let chunks: Vec<(LocalChunk, Score)> = top
             .into_iter()
-            .filter_map(|(idx, score)| candidates.get(idx).cloned().map(|c| (c, score)))
+            .filter_map(|(idx, score)| candidates.get(idx).cloned().map(|c| (c, Score::new(score))))
             .collect();
         self.log_query(query, scope, samples, started, &chunks);
         Ok(HybridSearchCore {
@@ -3260,6 +3307,7 @@ pub fn crate_predicate(scope: Option<&str>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::config::RetrievalVectorIndex;
+    use crate::types::LanguageId;
 
     fn sample_text() -> &'static str {
         "fn one() {}\nfn two() {}\nfn three() {}\nfn four() {}\nfn five() {}\nfn six() {}\nfn seven() {}"
@@ -3511,7 +3559,7 @@ mod tests {
         assert_eq!(s.both_stages, 1);
         assert_eq!(s.rerank_pool, 2);
         assert_eq!(s.rerank_promotions, 0);
-        assert!(!s.fts_degraded);
+        assert!(!s.fts_degraded.is_on());
     }
 
     #[test]
@@ -3520,7 +3568,7 @@ mod tests {
         assert_eq!(
             s,
             SearchStageStats {
-                rerank_pool: 7,
+                rerank_pool: CandidateCount::new(7),
                 ..SearchStageStats::default()
             }
         );
@@ -3536,7 +3584,7 @@ mod tests {
         assert_eq!(s.fts_candidates, 0);
         assert_eq!(s.fused_candidates, 2);
         assert_eq!(s.both_stages, 0);
-        assert!(s.fts_degraded);
+        assert!(s.fts_degraded.is_on());
     }
 
     #[test]
@@ -3863,14 +3911,14 @@ mod tests {
                 StageHit {
                     id: "known-1".into(),
                     path: "src/a.rs".into(),
-                    start_line: 1,
-                    score: 0.25
+                    start_line: LineNumber::new(1),
+                    score: Score::new(0.25)
                 },
                 StageHit {
                     id: "known-2".into(),
                     path: "src/b.rs".into(),
-                    start_line: 40,
-                    score: 0.75
+                    start_line: LineNumber::new(40),
+                    score: Score::new(0.75)
                 },
             ],
             "an unknown id is skipped, never given a placeholder location"
@@ -4112,7 +4160,11 @@ mod tests {
         cfg.retrieval_enrichment = crate::chunk_context::ChunkEnrichment::ALL;
         cfg.retrieval_include = vec!["crates/a-very-long-crate-name/with/deep/nested/path".into()];
         cfg.retrieval_exclude = vec!["target/generated".into()];
-        cfg.languages = vec!["rust".into(), "python".into(), "typescript".into()];
+        cfg.languages = vec![
+            LanguageId::parse("rust").expect("catalog id"),
+            LanguageId::parse("python").expect("catalog id"),
+            LanguageId::parse("typescript").expect("catalog id"),
+        ];
         let long_embedder = format!("fastembed-{}-candle-bert-1-embed-dim-2560", "0".repeat(16));
         let name = table_name_for(&cfg, &long_embedder);
         assert!(name.len() <= 128, "{} chars: {name}", name.len());
@@ -4485,8 +4537,8 @@ mod tests {
             .into_iter()
             .next()
             .unwrap();
-        chunk.vector = vec![0.1; DENSE_DIM.get()].into();
-        chunk.crate_name = "mentions".to_string();
+        chunk.vector = Embedding::from(vec![0.1; DENSE_DIM.get()]);
+        chunk.crate_name = CrateName::from("mentions");
         let batch = chunks_to_batch(&[chunk]).expect("batch must build");
         assert_eq!(batch.num_rows(), 1);
         assert_eq!(batch.num_columns(), 10);
@@ -4852,7 +4904,7 @@ mod tests {
         .into_iter()
         .next()
         .unwrap();
-        chunk.crate_name = "operator".to_string();
+        chunk.crate_name = CrateName::from("operator");
         let text = fts_text_of(&chunk);
         for term in ["read", "run", "record", "session"] {
             assert!(
@@ -4869,15 +4921,15 @@ mod tests {
         let mut chunk = LocalChunk {
             id: "x".into(),
             path: "()".into(),
-            chunk_index: 0,
-            start_line: 1,
+            chunk_index: ChunkIndex::new(0),
+            start_line: LineNumber::new(1),
             content: "()".into(),
-            language: "rs".into(),
+            language: LanguageLabel::from("rs"),
             file_hash: "h".into(),
-            crate_name: String::new(),
-            vector: Vec::new(),
+            crate_name: CrateName::default(),
+            vector: Embedding::default(),
         };
-        chunk.crate_name = "()".to_string();
+        chunk.crate_name = CrateName::from("()");
         assert_eq!(fts_text_of(&chunk), "  ");
     }
 
@@ -4913,13 +4965,13 @@ mod tests {
         let indexed = fts_text_of(&LocalChunk {
             id: "x".into(),
             path: "src/b.rs".into(),
-            chunk_index: 0,
-            start_line: 1,
+            chunk_index: ChunkIndex::new(0),
+            start_line: LineNumber::new(1),
             content: rows[1].1.into(),
-            language: "rs".into(),
+            language: LanguageLabel::from("rs"),
             file_hash: "h".into(),
-            crate_name: "alpha".into(),
-            vector: Vec::new(),
+            crate_name: CrateName::from("alpha"),
+            vector: Embedding::default(),
         });
         eprintln!("  indexed text: {indexed}");
         assert!(

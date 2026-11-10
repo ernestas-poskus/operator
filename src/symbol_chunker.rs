@@ -11,10 +11,12 @@
 //! preamble/leftover region between items. Nested items (a fn inside a body)
 //! are part of their enclosing item: only a line at brace depth 0 can start one.
 
+use crate::types::{LineNumber, SourceText};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemSpan {
-    pub start_line: u32,
-    pub text: String,
+    pub start_line: LineNumber,
+    pub text: SourceText,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,8 +97,8 @@ fn push_span(spans: &mut Vec<ItemSpan>, lines: &[&str], a: usize, b: usize) {
         return;
     }
     spans.push(ItemSpan {
-        start_line: (a + 1) as u32,
-        text: slice.join("\n"),
+        start_line: LineNumber::new((a + 1) as u32),
+        text: SourceText::new(slice.join("\n")),
     });
 }
 
@@ -476,7 +478,7 @@ mod tests {
     fn spans_of(text: &str) -> Vec<(u32, String)> {
         rust_item_spans(text)
             .into_iter()
-            .map(|s| (s.start_line, s.text))
+            .map(|s| (s.start_line.get(), s.text.into_inner()))
             .collect()
     }
 

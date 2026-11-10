@@ -127,9 +127,9 @@ impl Operator {
     /// Read-only ast-grep outline. `limit` is clamped to `1..=1000`.
     pub fn repo_map(
         &self,
-        path: Option<&str>,
-        language: Option<&str>,
-        limit: usize,
+        path: Option<&PathFilter>,
+        language: Option<&LanguageId>,
+        limit: Limit,
     ) -> Result<Vec<OutlineFile>> {
         tool(tools::repo_map(
             &self.state,
@@ -145,11 +145,11 @@ impl Operator {
     /// back to the workspace scanner. `limit` is clamped to `1..=1000`.
     pub async fn search_code(
         &self,
-        query: &str,
+        query: &QueryText,
         mode: &str,
-        path: Option<&str>,
-        language: Option<&str>,
-        limit: usize,
+        path: Option<&PathFilter>,
+        language: Option<&LanguageId>,
+        limit: Limit,
     ) -> Result<Vec<SearchHit>> {
         tool(tools::search_code(&self.state, query, mode, path, language, clamp_limit(limit)).await)
     }
@@ -158,11 +158,11 @@ impl Operator {
     /// `1..=1000`.
     pub fn search_ast(
         &self,
-        pattern: Option<&str>,
-        rule: Option<&str>,
-        path: Option<&str>,
-        language: Option<&str>,
-        limit: usize,
+        pattern: Option<&PatternText>,
+        rule: Option<&RuleText>,
+        path: Option<&PathsFilter>,
+        language: Option<&LanguageId>,
+        limit: Limit,
     ) -> Result<Vec<CodeMatch>> {
         tool(tools::search_ast(
             &self.state,
@@ -178,10 +178,10 @@ impl Operator {
     /// `limit` is clamped to `1..=1000`.
     pub async fn search_semantic(
         &self,
-        query: &str,
-        path: Option<&str>,
-        language: Option<&str>,
-        limit: usize,
+        query: &QueryText,
+        path: Option<&PathFilter>,
+        language: Option<&LanguageId>,
+        limit: Limit,
     ) -> Result<Vec<SemanticHit>> {
         tool(tools::search_semantic(&self.state, query, path, language, clamp_limit(limit)).await)
     }
@@ -189,9 +189,9 @@ impl Operator {
     /// Read a bounded line range from a workspace-contained file.
     pub fn read_source(
         &self,
-        path: &str,
-        start_line: Option<usize>,
-        end_line: Option<usize>,
+        path: &RepoPath,
+        start_line: Option<LineNumber>,
+        end_line: Option<LineNumber>,
     ) -> Result<String> {
         tool(tools::read_source(&self.state, path, start_line, end_line))
     }
@@ -220,9 +220,9 @@ impl Operator {
             index: Some(index),
         });
         Ok(RetrievalRefresh {
-            embedded,
-            dropped,
-            indexed: after.len(),
+            embedded: FileCount::new(embedded),
+            dropped: FileCount::new(dropped),
+            indexed: FileCount::new(after.len()),
         })
     }
 
@@ -243,8 +243,8 @@ fn tool<T>(result: std::result::Result<T, String>) -> Result<T> {
     result.map_err(Error::Tool)
 }
 
-fn clamp_limit(limit: usize) -> usize {
-    limit.clamp(1, 1000)
+fn clamp_limit(limit: Limit) -> Limit {
+    limit.clamp_to(1, 1000)
 }
 
 fn canonical_workspace(workspace: &Path) -> Result<crate::types::WorkspaceRoot> {

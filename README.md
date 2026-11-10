@@ -31,13 +31,22 @@ Requirements:
 as the MCP server without spawning a process:
 
 ```rust,no_run
-use operator::{Error, Operator};
+use operator::{Error, LanguageId, Limit, Operator, QueryText};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let op = Operator::open(".").await?;
-    let map = op.repo_map(None, Some("rust"), 50)?;
-    let hits = op.search_code("read_source", "literal", None, None, 10).await?;
+    let rust = LanguageId::try_from("rust")?;
+    let map = op.repo_map(None, Some(&rust), Limit::new(50))?;
+    let hits = op
+        .search_code(
+            &QueryText::from("read_source"),
+            "literal",
+            None,
+            None,
+            Limit::new(10),
+        )
+        .await?;
     println!("{} files, {} hits", map.len(), hits.len());
     Ok(())
 }

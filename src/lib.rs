@@ -55,8 +55,10 @@ pub async fn run() -> error::Result<()> {
 async fn reindex(args: cli::ReindexArgs) -> error::Result<()> {
     let root = args
         .workspace_root
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let workspace = std::fs::canonicalize(&root).unwrap_or(root);
+        .unwrap_or_else(|| crate::types::WorkspaceRoot::from("."));
+    let workspace = std::fs::canonicalize(&root)
+        .map(crate::types::WorkspaceRoot::from)
+        .unwrap_or(root);
     let ws = workspace_config::WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
         error::Error::Config("no .operator.toml; run `operator init` first".into())
     })?;

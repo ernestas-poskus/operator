@@ -10,7 +10,10 @@ use crate::ast_grep::{self, CodeMatch, OutlineFile};
 use crate::code_search::LocalCodeIndex;
 use crate::config::Config;
 use crate::languages;
-use crate::types::LanguageId;
+use crate::types::{
+    LanguageId, Limit, LineNumber, PathFilter, PathsFilter, PatternText, QueryText, RepoPath,
+    RuleText, Score, SourceText,
+};
 
 pub struct ToolState {
     pub cfg: Config,
@@ -20,17 +23,17 @@ pub struct ToolState {
 
 #[derive(Debug, Serialize)]
 pub struct SearchHit {
-    pub path: String,
-    pub line: usize,
-    pub text: String,
+    pub path: RepoPath,
+    pub line: LineNumber,
+    pub text: SourceText,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SemanticHit {
-    pub path: String,
-    pub line: u32,
-    pub score: f32,
-    pub content: String,
+    pub path: RepoPath,
+    pub line: LineNumber,
+    pub score: Score,
+    pub content: SourceText,
 }
 
 fn path_language(path: &Path) -> Option<&'static str> {
@@ -89,14 +92,12 @@ fn walk(cfg: &Config, path_filter: Option<&str>) -> Vec<PathBuf> {
 
 pub fn repo_map(
     state: &ToolState,
-    path: Option<&str>,
-    language: Option<&str>,
-    limit: usize,
+    path: Option<&PathFilter>,
+    language: Option<&LanguageId>,
+    limit: Limit,
 ) -> Result<Vec<OutlineFile>, String> {
     let selected: Vec<LanguageId> = match language {
-        Some(lang) => {
-            vec![LanguageId::parse(lang).ok_or_else(|| format!("unsupported language `{lang}`"))?]
-        }
+        Some(lang) => vec![lang.clone()],
         None => state.cfg.languages.clone(),
     };
     ast_grep::outline(&state.cfg.workspace_root, &selected, path, limit)
@@ -104,36 +105,63 @@ pub fn repo_map(
 
 pub async fn search_code(
     state: &ToolState,
-    query: &str,
+    query: &QueryText,
     mode: &str,
-    path: Option<&str>,
-    language: Option<&str>,
-    limit: usize,
+    path: Option<&PathFilter>,
+    language: Option<&LanguageId>,
+    limit: Limit,
 ) -> Result<Vec<SearchHit>, String> {
     match mode {
         "fts" => {
             if let Some(index) = &state.index {
                 let hits = index
-                    .hybrid_search(query, limit, None, state.cfg.retrieval_dense_weight.get())
+                    .hybrid_search(
+                        query.as_str(),
+                        limit.get(),
+                        None,
+                        state.cfg.retrieval_dense_weight,
+                    )
                     .await
                     .map_err(|e| format!("index search failed: {e}"))?;
                 return Ok(hits
                     .into_iter()
                     .filter(|(chunk, _)| {
-                        language
-                            .is_none_or(|lang| path_language(Path::new(&chunk.path)) == Some(lang))
+                        language.is_none_or(|lang| {
+                            path_language(Path::new(chunk.path.as_str())) == Some(lang.as_str())
+                        })
                     })
                     .map(|(chunk, _)| SearchHit {
                         path: chunk.path,
-                        line: chunk.start_line as usize,
+                        line: chunk.start_line,
                         text: chunk.content,
                     })
                     .collect());
             }
-            scan_text(state, query, false, path, language, limit)
+            scan_text(
+                state,
+                query.as_str(),
+                false,
+                path.map(PathFilter::as_str),
+                language.map(LanguageId::as_str),
+                limit,
+            )
         }
-        "literal" => scan_text(state, query, false, path, language, limit),
-        "regex" => scan_text(state, query, true, path, language, limit),
+        "literal" => scan_text(
+            state,
+            query.as_str(),
+            false,
+            path.map(PathFilter::as_str),
+            language.map(LanguageId::as_str),
+            limit,
+        ),
+        "regex" => scan_text(
+            state,
+            query.as_str(),
+            true,
+            path.map(PathFilter::as_str),
+            language.map(LanguageId::as_str),
+            limit,
+        ),
         other => Err(format!(
             "unknown search mode `{other}`; use fts, literal or regex"
         )),
@@ -146,7 +174,7 @@ fn scan_text(
     regex: bool,
     path: Option<&str>,
     language: Option<&str>,
-    limit: usize,
+    limit: Limit,
 ) -> Result<Vec<SearchHit>, String> {
     let matcher = if regex {
         Some(Regex::new(query).map_err(|e| format!("invalid regex: {e}"))?)
@@ -175,11 +203,11 @@ fn scan_text(
             };
             if hit {
                 out.push(SearchHit {
-                    path: rel.clone(),
-                    line: idx + 1,
-                    text: line.chars().take(400).collect(),
+                    path: RepoPath::from(rel.clone()),
+                    line: LineNumber::new((idx + 1) as u32),
+                    text: SourceText::new(line.chars().take(400).collect::<String>()),
                 });
-                if out.len() >= limit {
+                if out.len() >= limit.get() {
                     return Ok(out);
                 }
             }
@@ -190,16 +218,14 @@ fn scan_text(
 
 pub fn search_ast(
     state: &ToolState,
-    pattern: Option<&str>,
-    rule: Option<&str>,
-    path: Option<&str>,
-    language: Option<&str>,
-    limit: usize,
+    pattern: Option<&PatternText>,
+    rule: Option<&RuleText>,
+    path: Option<&PathsFilter>,
+    language: Option<&LanguageId>,
+    limit: Limit,
 ) -> Result<Vec<CodeMatch>, String> {
     let selected: Vec<LanguageId> = match language {
-        Some(lang) => {
-            vec![LanguageId::parse(lang).ok_or_else(|| format!("unsupported language `{lang}`"))?]
-        }
+        Some(lang) => vec![lang.clone()],
         None => state.cfg.languages.clone(),
     };
     ast_grep::search(
@@ -214,13 +240,13 @@ pub fn search_ast(
 
 pub async fn search_semantic(
     state: &ToolState,
-    query: &str,
-    path: Option<&str>,
-    language: Option<&str>,
-    limit: usize,
+    query: &QueryText,
+    path: Option<&PathFilter>,
+    language: Option<&LanguageId>,
+    limit: Limit,
 ) -> Result<Vec<SemanticHit>, String> {
     if let Some(lang) = language
-        && !state.cfg.languages.iter().any(|l| l.as_str() == lang)
+        && !state.cfg.languages.iter().any(|l| l == lang)
     {
         return Err(format!("language `{lang}` is not selected"));
     }
@@ -229,7 +255,12 @@ pub async fn search_semantic(
         .as_ref()
         .ok_or_else(|| "index_missing: run `operator reindex` first".to_string())?;
     let hits = index
-        .hybrid_search(query, limit, None, state.cfg.retrieval_dense_weight.get())
+        .hybrid_search(
+            query.as_str(),
+            limit.get(),
+            None,
+            state.cfg.retrieval_dense_weight,
+        )
         .await
         .map_err(|e| format!("semantic search failed: {e}"))?;
     let mut out: Vec<SemanticHit> = hits
@@ -242,20 +273,21 @@ pub async fn search_semantic(
         })
         .collect();
     if let Some(filter) = path {
-        out.retain(|hit| hit.path.contains(filter));
+        out.retain(|hit| hit.path.contains(filter.as_str()));
     }
     if let Some(lang) = language {
-        out.retain(|hit| path_language(Path::new(&hit.path)) == Some(lang));
+        out.retain(|hit| path_language(Path::new(hit.path.as_str())) == Some(lang.as_str()));
     }
     Ok(out)
 }
 
 pub fn read_source(
     state: &ToolState,
-    path: &str,
-    start_line: Option<usize>,
-    end_line: Option<usize>,
+    path: &RepoPath,
+    start_line: Option<LineNumber>,
+    end_line: Option<LineNumber>,
 ) -> Result<String, String> {
+    let path = path.as_str();
     let root =
         std::fs::canonicalize(&state.cfg.workspace_root).map_err(|e| format!("workspace: {e}"))?;
     let candidate = root.join(path);
@@ -265,7 +297,14 @@ pub fn read_source(
     }
     let text = std::fs::read_to_string(&canonical).map_err(|e| format!("{path}: {e}"))?;
     let lines: Vec<&str> = text.lines().collect();
-    let start = start_line.unwrap_or(1).saturating_sub(1).min(lines.len());
-    let end = end_line.unwrap_or(lines.len()).min(lines.len());
+    let start = start_line
+        .map(|line| line.get() as usize)
+        .unwrap_or(1)
+        .saturating_sub(1)
+        .min(lines.len());
+    let end = end_line
+        .map(|line| line.get() as usize)
+        .unwrap_or(lines.len())
+        .min(lines.len());
     Ok(lines[start..end].join("\n"))
 }

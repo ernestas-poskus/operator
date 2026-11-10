@@ -24,6 +24,8 @@
 use std::fmt;
 use std::path::Path;
 
+use crate::types::{DocumentFormat, PageCount};
+
 /// Extensions the in-process converter handles, lower-case, without a dot.
 ///
 /// `csv` is deliberately absent: a delimited text file is already UTF-8 text
@@ -107,9 +109,9 @@ impl std::error::Error for DocError {}
 #[allow(dead_code)]
 pub struct DocumentMeta {
     /// Stable format name (`docx`, `pdf`, …).
-    pub format: String,
+    pub format: DocumentFormat,
     /// Page count, when the format reports one.
-    pub pages: Option<u32>,
+    pub pages: Option<PageCount>,
 }
 
 /// Flatten anydoc's `ConvertError` into [`DocError`].
@@ -291,7 +293,7 @@ mod tests {
 
         let with_pages = DocumentMeta {
             format: "pdf".into(),
-            pages: Some(12),
+            pages: Some(PageCount::new(12)),
         };
         let head = format_document("body", "a.pdf", &with_pages, 0);
         assert!(

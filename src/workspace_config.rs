@@ -172,8 +172,26 @@ impl WorkspaceConfig {
 mod tests {
     use super::WorkspaceConfig;
     use crate::config::ModelDtype;
-    use crate::types::EmbedDim;
+    use crate::types::{ChunkLines, EmbedDim, LanguageId, RerankEnabled, SchemaVersion};
     use std::path::Path;
+
+    #[test]
+    fn the_saved_toml_is_plain_primitives() {
+        let cfg = WorkspaceConfig {
+            schema_version: Some(SchemaVersion::new(3)),
+            languages: Some(vec![LanguageId::parse("rust").expect("catalog id")]),
+            retrieval_chunk_lines: Some(ChunkLines::new(50)),
+            retrieval_rerank_enabled: Some(RerankEnabled::on()),
+            ..Default::default()
+        };
+        let text = toml::to_string_pretty(&cfg).expect("serialize");
+        assert!(text.contains("schema_version = 3"), "{text}");
+        assert!(text.contains("languages = [\"rust\"]"), "{text}");
+        assert!(text.contains("retrieval_chunk_lines = 50"), "{text}");
+        assert!(text.contains("retrieval_rerank_enabled = true"), "{text}");
+        assert!(!text.contains("LanguageId"), "{text}");
+        assert!(!text.contains("ChunkLines"), "{text}");
+    }
 
     #[test]
     fn retrieval_model_knobs_merge_into_the_config() {

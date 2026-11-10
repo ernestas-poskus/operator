@@ -19,3 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `operator::Operator` library facade for in-process code intelligence.
 - Optional `tui` feature; `--no-default-features` builds a lean library and
   headless binary.
+- Newtype wrappers for the crate's domain primitives (language ids, repo
+  paths, source text, counts, line numbers, scores, model/table names, paths
+  and configuration flags). The wrappers are `serde(transparent)`, so the JSON
+  and `.operator.toml` wire formats are unchanged.
+
+### Changed
+
+- Interactive CLI prompts use [`demand`](https://github.com/jdx/demand); the
+  `dialoguer` dependency is gone. `operator init`'s language picker is
+  filterable, requires at least one selection, and returns typed
+  `LanguageId` values instead of indexes.

@@ -6,7 +6,9 @@ optional local index and exposes the same read-only operations as the MCP
 server.
 
 ```rust,no_run
-use operator::{Config, Error, Operator};
+use operator::{
+    Config, Error, LanguageId, Limit, LineNumber, Operator, QueryText, RepoPath,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -14,11 +16,22 @@ async fn main() -> Result<(), Error> {
     // to build the local retrieval index.
     let op = Operator::open(".").await?;
 
-    let outline = op.repo_map(None, Some("rust"), 100)?;
+    let rust = LanguageId::try_from("rust")?;
+    let outline = op.repo_map(None, Some(&rust), Limit::new(100))?;
     let hits = op
-        .search_code("read_source", "literal", None, None, 20)
+        .search_code(
+            &QueryText::from("read_source"),
+            "literal",
+            None,
+            None,
+            Limit::new(20),
+        )
         .await?;
-    let source = op.read_source("src/lib.rs", Some(1), Some(40))?;
+    let source = op.read_source(
+        &RepoPath::from("src/lib.rs"),
+        Some(LineNumber::new(1)),
+        Some(LineNumber::new(40)),
+    )?;
 
     println!("{} files, {} hits, {} bytes", outline.len(), hits.len(), source.len());
     Ok(())
@@ -61,6 +74,17 @@ the lexical/AST/read tools keep working, and semantic search returns
 All limits are clamped to `1..=1000`. Direct library calls do not write the MCP
 usage journal; only `serve_stdio` does, because journaling lives in the MCP
 wrapper.
+
+## Newtypes
+
+The value types that cross the library boundary are newtypes over their
+primitives — `LanguageId`, `RepoPath`, `SourceText`, `LineNumber`, `FileCount`,
+`Score`, `Limit`, `WorkspaceRoot` and friends — instead of bare `String`,
+`usize`, `f32` or `PathBuf`. They convert explicitly (`LanguageId::parse`,
+`.get()`, `.as_str()`) or implicitly (`From`/`Into`), and compare against their
+inner primitive (`count == 1`, `line > 0`). Every wrapper is
+`serde(transparent)` and `schemars(inline)`, so the JSON, `.operator.toml` and
+MCP tool-input schemas are unchanged: the typing is compile-time only.
 
 ## Errors
 

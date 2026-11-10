@@ -1,6 +1,7 @@
 //! CLI surface: init, serve, reindex, learn.
 use argh::FromArgs;
-use std::path::PathBuf;
+
+use crate::types::{CommaSeparated, JournalDir, LookbackWindow, WorkspaceRoot};
 
 #[derive(FromArgs, Debug)]
 /// Read-only code-intelligence MCP server for coding agents.
@@ -25,7 +26,7 @@ pub enum Command {
 /// Detect supported languages and write the workspace selection.
 pub struct InitArgs {
     #[argh(positional)]
-    pub workspace_root: Option<PathBuf>,
+    pub workspace_root: Option<WorkspaceRoot>,
     /// overwrite an existing selection when prompted
     #[argh(switch)]
     pub force: bool,
@@ -34,16 +35,16 @@ pub struct InitArgs {
     pub yes: bool,
     #[argh(option)]
     /// comma-separated canonical language ids; default: detected
-    pub languages: Option<String>,
+    pub languages: Option<CommaSeparated>,
     /// select every supported language
     #[argh(switch)]
     pub all_supported: bool,
     /// comma-separated workspace-relative include paths
     #[argh(option)]
-    pub include: Option<String>,
+    pub include: Option<CommaSeparated>,
     /// comma-separated workspace-relative exclude paths
     #[argh(option)]
-    pub exclude: Option<String>,
+    pub exclude: Option<CommaSeparated>,
     /// force the terminal UI even when stdin is redirected
     #[argh(switch)]
     pub tui: bool,
@@ -59,7 +60,7 @@ pub struct InitArgs {
 /// Open the setup/dashboard TUI for a configured workspace.
 pub struct TuiArgs {
     #[argh(positional)]
-    pub workspace_root: Option<PathBuf>,
+    pub workspace_root: Option<WorkspaceRoot>,
 }
 
 #[derive(FromArgs, Debug)]
@@ -67,7 +68,7 @@ pub struct TuiArgs {
 /// Serve the five code-intelligence tools over stdio MCP.
 pub struct ServeArgs {
     #[argh(positional)]
-    pub workspace_root: Option<PathBuf>,
+    pub workspace_root: Option<WorkspaceRoot>,
     /// do not rewrite host MCP registration files
     #[argh(switch)]
     pub no_register: bool,
@@ -78,7 +79,7 @@ pub struct ServeArgs {
 /// Refresh the selected-language search index.
 pub struct ReindexArgs {
     #[argh(positional)]
-    pub workspace_root: Option<PathBuf>,
+    pub workspace_root: Option<WorkspaceRoot>,
     /// drop the current index before rebuilding
     #[argh(switch)]
     pub rebuild: bool,
@@ -98,14 +99,14 @@ pub struct ReindexArgs {
 /// Report repeated/mismatched MCP tool usage from the local journal.
 pub struct LearnArgs {
     #[argh(positional)]
-    pub workspace_root: Option<PathBuf>,
+    pub workspace_root: Option<WorkspaceRoot>,
     /// emit machine-readable JSON
     #[argh(switch)]
     pub json: bool,
     /// lookback window, e.g. 7d or 24h
-    #[argh(option, default = "String::from(\"7d\")")]
-    pub since: String,
+    #[argh(option, default = "LookbackWindow::from(\"7d\")")]
+    pub since: LookbackWindow,
     /// override the journal directory
     #[argh(option)]
-    pub journal_dir: Option<PathBuf>,
+    pub journal_dir: Option<JournalDir>,
 }

@@ -23,6 +23,7 @@
 //! back empty, e.g. `symbols` on a chunk outside every item) renders the empty
 //! string — never a stray blank line.
 
+use crate::types::{EnrichModule, EnrichPath, EnrichSymbols};
 use crate_map::NO_CRATE;
 
 /// At most this many enclosing items are rendered (innermost wins).
@@ -40,11 +41,11 @@ pub const MAX_SYMBOL_CHARS: usize = 60;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkEnrichment {
     /// The `File: <path>` line — the incumbent, and the default.
-    pub path: bool,
+    pub path: EnrichPath,
     /// The `Module: <crate>::<module>` line derived from the crate map.
-    pub module: bool,
+    pub module: EnrichModule,
     /// The `Symbols: <item> > <item>` line derived from a brace-aware scan.
-    pub symbols: bool,
+    pub symbols: EnrichSymbols,
 }
 
 impl Default for ChunkEnrichment {
@@ -56,52 +57,54 @@ impl Default for ChunkEnrichment {
 impl ChunkEnrichment {
     /// No context at all: the raw chunk text (the ablation's floor).
     pub const BARE: Self = Self {
-        path: false,
-        module: false,
-        symbols: false,
+        path: EnrichPath::off(),
+        module: EnrichModule::off(),
+        symbols: EnrichSymbols::off(),
     };
     /// Today's shipped shape: the path line only.
     pub const PATH: Self = Self {
-        path: true,
-        module: false,
-        symbols: false,
+        path: EnrichPath::on(),
+        module: EnrichModule::off(),
+        symbols: EnrichSymbols::off(),
     };
     /// Path + module.
     pub const PATH_MODULE: Self = Self {
-        path: true,
-        module: true,
-        symbols: false,
+        path: EnrichPath::on(),
+        module: EnrichModule::on(),
+        symbols: EnrichSymbols::off(),
     };
     /// Path + enclosing symbols.
     pub const PATH_SYMBOLS: Self = Self {
-        path: true,
-        module: false,
-        symbols: true,
+        path: EnrichPath::on(),
+        module: EnrichModule::off(),
+        symbols: EnrichSymbols::on(),
     };
     /// Every structural field.
     pub const ALL: Self = Self {
-        path: true,
-        module: true,
-        symbols: true,
+        path: EnrichPath::on(),
+        module: EnrichModule::on(),
+        symbols: EnrichSymbols::on(),
     };
 
     /// Whether no field is set, so [`context_prefix`] renders nothing at all.
     pub fn is_bare(self) -> bool {
-        !self.path && !self.module && !self.symbols
+        !self.path.is_on() && !self.module.is_on() && !self.symbols.is_on()
     }
 
     /// How many fields are set — the "fewest fields" tie-break of the
     /// ablation report's recommendation (test-gated with that instrument).
     #[cfg(test)]
     pub fn field_count(self) -> usize {
-        usize::from(self.path) + usize::from(self.module) + usize::from(self.symbols)
+        usize::from(self.path.is_on())
+            + usize::from(self.module.is_on())
+            + usize::from(self.symbols.is_on())
     }
 
     /// Canonical label, used by the CLI flag, the run key, the index identity
     /// and the ablation report — one vocabulary, so a variant can never be
     /// named one way in a record and another in the report.
     pub fn label(self) -> &'static str {
-        match (self.path, self.module, self.symbols) {
+        match (self.path.is_on(), self.module.is_on(), self.symbols.is_on()) {
             (false, false, false) => "bare",
             (true, false, false) => "path",
             (true, true, false) => "path+module",
@@ -135,19 +138,19 @@ impl ChunkEnrichment {
             "path+symbols" => Some(Self::PATH_SYMBOLS),
             "all" | "path+module+symbols" => Some(Self::ALL),
             "module" => Some(Self {
-                path: false,
-                module: true,
-                symbols: false,
+                path: EnrichPath::off(),
+                module: EnrichModule::on(),
+                symbols: EnrichSymbols::off(),
             }),
             "symbols" => Some(Self {
-                path: false,
-                module: false,
-                symbols: true,
+                path: EnrichPath::off(),
+                module: EnrichModule::off(),
+                symbols: EnrichSymbols::on(),
             }),
             "module+symbols" => Some(Self {
-                path: false,
-                module: true,
-                symbols: true,
+                path: EnrichPath::off(),
+                module: EnrichModule::on(),
+                symbols: EnrichSymbols::on(),
             }),
             _ => None,
         }
@@ -334,13 +337,13 @@ pub fn context_prefix(
         return String::new();
     }
     let mut lines: Vec<String> = Vec::new();
-    if enrichment.path {
+    if enrichment.path.is_on() {
         lines.push(format!("File: {path}"));
     }
-    if enrichment.module && !module_path.trim().is_empty() {
+    if enrichment.module.is_on() && !module_path.trim().is_empty() {
         lines.push(format!("Module: {module_path}"));
     }
-    if enrichment.symbols && !symbols.is_empty() {
+    if enrichment.symbols.is_on() && !symbols.is_empty() {
         lines.push(format!("Symbols: {}", symbols.join(" > ")));
     }
     if lines.is_empty() {
@@ -660,9 +663,9 @@ mod tests {
         assert_eq!(
             context_prefix(
                 ChunkEnrichment {
-                    path: false,
-                    module: true,
-                    symbols: false
+                    path: EnrichPath::off(),
+                    module: EnrichModule::on(),
+                    symbols: EnrichSymbols::off(),
                 },
                 "src/a.rs",
                 "",
@@ -674,9 +677,9 @@ mod tests {
         assert_eq!(
             context_prefix(
                 ChunkEnrichment {
-                    path: false,
-                    module: false,
-                    symbols: true
+                    path: EnrichPath::off(),
+                    module: EnrichModule::off(),
+                    symbols: EnrichSymbols::on(),
                 },
                 "src/a.rs",
                 "",

@@ -1,6 +1,6 @@
 //! `operator init`: detect ast-grep languages and persist the selection.
 use std::io::IsTerminal;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use demand::{DemandOption, MultiSelect};
 
@@ -8,13 +8,19 @@ use crate::cli::InitArgs;
 use crate::error::{Error, Result};
 use crate::languages;
 use crate::mcp_register;
-use crate::types::{ExcludePath, IncludePath, LanguageId, SchemaVersion};
+use crate::types::{
+    Argv, CommandArg, ExcludePath, IncludePath, LanguageId, SchemaVersion, WorkspaceRoot,
+};
 use crate::workspace_config::WorkspaceConfig;
 
 pub async fn run(args: InitArgs) -> Result<()> {
     let requested = args.workspace_root.clone();
-    let root = requested.clone().unwrap_or_else(|| PathBuf::from("."));
-    let workspace = std::fs::canonicalize(&root).unwrap_or(root);
+    let root = requested
+        .clone()
+        .unwrap_or_else(|| WorkspaceRoot::from("."));
+    let workspace = std::fs::canonicalize(&root)
+        .map(WorkspaceRoot::from)
+        .unwrap_or(root);
     #[cfg(feature = "tui")]
     let use_tui = args.tui
         || (!args.no_tui
@@ -42,7 +48,7 @@ pub async fn run(args: InitArgs) -> Result<()> {
         )));
     }
     let selected = if let Some(raw) = args.languages {
-        parse_selection(&raw)?
+        parse_selection(raw.as_str())?
     } else if args.all_supported {
         languages::supported_ids()
     } else if args.yes || !std::io::stdin().is_terminal() {
@@ -59,12 +65,12 @@ pub async fn run(args: InitArgs) -> Result<()> {
     let include_paths = args
         .include
         .as_ref()
-        .map(|raw| parse_paths(raw))
+        .map(|raw| parse_paths(raw.as_str()))
         .transpose()?;
     let exclude_paths = args
         .exclude
         .as_ref()
-        .map(|raw| parse_paths(raw))
+        .map(|raw| parse_paths(raw.as_str()))
         .transpose()?;
     validate_paths(
         &workspace,
@@ -117,7 +123,7 @@ pub async fn run(args: InitArgs) -> Result<()> {
         config.save(&workspace)?;
     }
     let transport = mcp_register::Transport::Stdio {
-        argv: vec!["serve".into()],
+        argv: Argv::new(vec![CommandArg::from("serve")]),
     };
     let mode = if args.force {
         mcp_register::Mode::ReplaceFile

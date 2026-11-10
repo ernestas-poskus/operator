@@ -8,20 +8,26 @@ use sha2::{Digest, Sha256};
 
 use crate::cli::LearnArgs;
 use crate::error::{Error, Result};
+use crate::types::{
+    ArgsHash, ArgsShape, CallCount, DurationMs, ErrorCount, ErrorMessage, JournalDir,
+    LookbackWindow, PositionIndex, ResultBytes, ResultCount, SchemaVersion, SessionId, SignalCount,
+    SignalKind, Success, Suggestion, ToolName, UnixSeconds,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JournalEvent {
-    pub version: u32,
-    pub timestamp: u64,
-    pub session: String,
-    pub tool: String,
-    pub args_hash: String,
-    pub args_shape: String,
-    pub ok: bool,
-    pub error: Option<String>,
-    pub result_bytes: usize,
-    pub result_count: usize,
-    pub duration_ms: u64,
+    pub version: SchemaVersion,
+    /// Unix **seconds**: the historical JSONL unit, kept byte-identical.
+    pub timestamp: UnixSeconds,
+    pub session: SessionId,
+    pub tool: ToolName,
+    pub args_hash: ArgsHash,
+    pub args_shape: ArgsShape,
+    pub ok: Success,
+    pub error: Option<ErrorMessage>,
+    pub result_bytes: ResultBytes,
+    pub result_count: ResultCount,
+    pub duration_ms: DurationMs,
 }
 
 fn default_journal_dir(workspace: &Path) -> PathBuf {
@@ -43,15 +49,15 @@ fn default_journal_dir(workspace: &Path) -> PathBuf {
 #[derive(Clone)]
 pub struct Journal {
     path: PathBuf,
-    session: String,
+    session: SessionId,
 }
 
 impl Journal {
     pub fn open(workspace: &Path) -> Self {
-        let dir = default_journal_dir(workspace);
+        let dir = JournalDir::from(default_journal_dir(workspace));
         let _ = std::fs::create_dir_all(&dir);
         let day = time_day();
-        let session = format!("{:x}", std::process::id());
+        let session = SessionId::new(format!("{:x}", std::process::id()));
         Self {
             path: dir.join(format!("{day}.jsonl")),
             session,
@@ -61,32 +67,34 @@ impl Journal {
     #[allow(clippy::too_many_arguments)]
     pub fn record(
         &self,
-        tool: &str,
+        tool: &ToolName,
         args: &serde_json::Value,
-        ok: bool,
-        error: Option<&str>,
-        result_bytes: usize,
-        result_count: usize,
+        ok: Success,
+        error: Option<&ErrorMessage>,
+        result_bytes: ResultBytes,
+        result_count: ResultCount,
         duration: Duration,
     ) {
         let canonical = canonical_args(args);
         let mut hasher = Sha256::new();
         hasher.update(canonical.as_bytes());
         let event = JournalEvent {
-            version: 1,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
+            version: SchemaVersion::new(1),
+            timestamp: UnixSeconds::new(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+            ),
             session: self.session.clone(),
-            tool: tool.to_string(),
-            args_hash: crate::hash::hex_digest(hasher.finalize()),
-            args_shape: shape_of(args),
+            tool: tool.clone(),
+            args_hash: ArgsHash::new(crate::hash::hex_digest(hasher.finalize())),
+            args_shape: ArgsShape::new(shape_of(args)),
             ok,
-            error: error.map(str::to_string),
+            error: error.cloned(),
             result_bytes,
             result_count,
-            duration_ms: duration.as_millis() as u64,
+            duration_ms: DurationMs::new(duration.as_millis() as u64),
         };
         if let Ok(line) = serde_json::to_string(&event) {
             use std::io::Write;
@@ -152,16 +160,20 @@ fn parse_since(raw: &str) -> Duration {
 
 #[derive(Debug, Serialize)]
 pub struct Signal {
-    pub kind: String,
-    pub tool: String,
-    pub count: usize,
-    pub first_index: usize,
-    pub suggestion: String,
+    pub kind: SignalKind,
+    pub tool: ToolName,
+    pub count: SignalCount,
+    pub first_index: PositionIndex,
+    pub suggestion: Suggestion,
 }
 
-pub fn analyze(workspace: &Path, journal_dir: Option<&Path>, since: &str) -> Result<Vec<Signal>> {
+pub fn analyze(
+    workspace: &Path,
+    journal_dir: Option<&JournalDir>,
+    since: &LookbackWindow,
+) -> Result<Vec<Signal>> {
     let dir = journal_dir
-        .map(Path::to_path_buf)
+        .map(|dir| dir.as_path().to_path_buf())
         .unwrap_or_else(|| default_journal_dir(workspace));
     let mut events = Vec::new();
     if dir.is_dir() {
@@ -178,19 +190,19 @@ pub fn analyze(workspace: &Path, journal_dir: Option<&Path>, since: &str) -> Res
         }
     }
     let _ = workspace;
-    let _ = parse_since(since);
-    let mut seen: HashMap<(String, String), usize> = HashMap::new();
+    let _ = parse_since(since.as_str());
+    let mut seen: HashMap<(ToolName, ArgsHash), usize> = HashMap::new();
     let mut signals = Vec::new();
     for (index, event) in events.iter().enumerate() {
         let key = (event.tool.clone(), event.args_hash.clone());
         if let Some(first) = seen.get(&key) {
             if index - *first <= 5 {
                 signals.push(Signal {
-                    kind: "exact_repeat".into(),
+                    kind: SignalKind::from("exact_repeat"),
                     tool: event.tool.clone(),
-                    count: 2,
-                    first_index: *first,
-                    suggestion: "The same call repeated within five calls; describe the tool as idempotent and return a cache hint.".into(),
+                    count: SignalCount::new(2),
+                    first_index: PositionIndex::new(*first),
+                    suggestion: Suggestion::from("The same call repeated within five calls; describe the tool as idempotent and return a cache hint."),
                 });
             }
         } else {
@@ -199,7 +211,7 @@ pub fn analyze(workspace: &Path, journal_dir: Option<&Path>, since: &str) -> Res
     }
     let mut errors: HashMap<String, usize> = HashMap::new();
     for event in &events {
-        if !event.ok {
+        if !event.ok.is_on() {
             let key = format!("{}:{}", event.tool, event.error.clone().unwrap_or_default());
             *errors.entry(key).or_default() += 1;
         }
@@ -207,11 +219,11 @@ pub fn analyze(workspace: &Path, journal_dir: Option<&Path>, since: &str) -> Res
     for (key, count) in errors {
         if count >= 3 {
             signals.push(Signal {
-                kind: "error_repeat".into(),
-                tool: key.split(':').next().unwrap_or_default().to_string(),
-                count,
-                first_index: 0,
-                suggestion: "A repeated error class suggests the argument shape or tool description is unclear.".into(),
+                kind: SignalKind::from("error_repeat"),
+                tool: ToolName::from(key.split(':').next().unwrap_or_default()),
+                count: SignalCount::new(count),
+                first_index: PositionIndex::new(0),
+                suggestion: Suggestion::from("A repeated error class suggests the argument shape or tool description is unclear."),
             });
         }
     }
@@ -219,9 +231,11 @@ pub fn analyze(workspace: &Path, journal_dir: Option<&Path>, since: &str) -> Res
 }
 
 pub fn run(args: LearnArgs) -> Result<()> {
-    let root = args.workspace_root.unwrap_or_else(|| PathBuf::from("."));
-    let workspace = std::fs::canonicalize(&root).unwrap_or(root);
-    let signals = analyze(&workspace, args.journal_dir.as_deref(), &args.since)?;
+    let root = args
+        .workspace_root
+        .unwrap_or_else(|| crate::types::WorkspaceRoot::from("."));
+    let workspace = std::fs::canonicalize(&root).unwrap_or_else(|_| root.into_path_buf());
+    let signals = analyze(&workspace, args.journal_dir.as_ref(), &args.since)?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&signals)?);
     } else if signals.is_empty() {
@@ -250,59 +264,98 @@ mod tests {
     use super::*;
 
     #[test]
+    fn journal_records_keep_their_jsonl_shape() {
+        let event = JournalEvent {
+            version: SchemaVersion::new(1),
+            timestamp: UnixSeconds::new(1_700_000_000),
+            session: SessionId::from("s"),
+            tool: ToolName::from("search_code"),
+            args_hash: ArgsHash::from("h"),
+            args_shape: ArgsShape::from("shape"),
+            ok: Success::on(),
+            error: None,
+            result_bytes: ResultBytes::new(0),
+            result_count: ResultCount::new(2),
+            duration_ms: DurationMs::new(3),
+        };
+        let json = serde_json::to_value(&event).expect("serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "version": 1,
+                "timestamp": 1_700_000_000u64,
+                "session": "s",
+                "tool": "search_code",
+                "args_hash": "h",
+                "args_shape": "shape",
+                "ok": true,
+                "error": null,
+                "result_bytes": 0,
+                "result_count": 2,
+                "duration_ms": 3
+            })
+        );
+    }
+
+    #[test]
     fn repeated_calls_become_a_signal() {
         let dir = tempfile::tempdir().unwrap();
         let journal = Journal {
             path: dir.path().join("day.jsonl"),
-            session: "s".into(),
+            session: SessionId::from("s"),
         };
         let args = serde_json::json!({"path": "a.go"});
         journal.record(
-            "read_source",
+            &ToolName::from("read_source"),
             &args,
-            true,
+            Success::on(),
             None,
-            10,
-            1,
+            ResultBytes::new(10),
+            ResultCount::new(1),
             Duration::from_millis(1),
         );
         journal.record(
-            "read_source",
+            &ToolName::from("read_source"),
             &args,
-            true,
+            Success::on(),
             None,
-            10,
-            1,
+            ResultBytes::new(10),
+            ResultCount::new(1),
             Duration::from_millis(1),
         );
-        let signals = analyze(dir.path(), Some(dir.path()), "7d").unwrap();
+        let signals = analyze(
+            dir.path(),
+            Some(&JournalDir::from(dir.path())),
+            &LookbackWindow::from("7d"),
+        )
+        .unwrap();
         assert!(signals.iter().any(|s| s.kind == "exact_repeat"));
     }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ToolStat {
-    pub tool: String,
-    pub calls: usize,
-    pub errors: usize,
-    pub p50_ms: u64,
-    pub p95_ms: u64,
-    pub bytes: usize,
-    pub last_seen: u64,
+    pub tool: ToolName,
+    pub calls: CallCount,
+    pub errors: ErrorCount,
+    pub p50_ms: DurationMs,
+    pub p95_ms: DurationMs,
+    pub bytes: ResultBytes,
+    pub last_seen: UnixSeconds,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct JournalStats {
-    pub calls: usize,
-    pub errors: usize,
-    pub bytes: usize,
+    pub calls: CallCount,
+    pub errors: ErrorCount,
+    pub bytes: ResultBytes,
     pub tools: Vec<ToolStat>,
-    pub signals: usize,
+    pub signals: SignalCount,
 }
 
-fn read_events(workspace: &Path, journal_dir: Option<&Path>) -> Result<Vec<JournalEvent>> {
+fn read_events(workspace: &Path, journal_dir: Option<&JournalDir>) -> Result<Vec<JournalEvent>> {
     let dir = journal_dir
-        .map(Path::to_path_buf)
+        .map(|dir| dir.as_path().to_path_buf())
         .unwrap_or_else(|| default_journal_dir(workspace));
     let mut events = Vec::new();
     if dir.is_dir() {
@@ -324,8 +377,8 @@ fn read_events(workspace: &Path, journal_dir: Option<&Path>) -> Result<Vec<Journ
 
 pub fn stats(workspace: &Path) -> Result<JournalStats> {
     let events = read_events(workspace, None)?;
-    let signals = analyze(workspace, None, "30d")?.len();
-    let mut by_tool: std::collections::BTreeMap<String, Vec<&JournalEvent>> = Default::default();
+    let signals = SignalCount::new(analyze(workspace, None, &LookbackWindow::from("30d"))?.len());
+    let mut by_tool: std::collections::BTreeMap<ToolName, Vec<&JournalEvent>> = Default::default();
     for event in &events {
         by_tool.entry(event.tool.clone()).or_default().push(event);
     }
@@ -335,25 +388,25 @@ pub fn stats(workspace: &Path) -> Result<JournalStats> {
         let p50 = calls
             .get(calls.len() / 2)
             .map(|e| e.duration_ms)
-            .unwrap_or(0);
+            .unwrap_or(DurationMs::new(0));
         let p95 = calls
             .get((calls.len() * 95 / 100).min(calls.len().saturating_sub(1)))
             .map(|e| e.duration_ms)
-            .unwrap_or(0);
+            .unwrap_or(DurationMs::new(0));
         tools.push(ToolStat {
             tool,
-            calls: calls.len(),
-            errors: calls.iter().filter(|e| !e.ok).count(),
+            calls: CallCount::new(calls.len()),
+            errors: ErrorCount::new(calls.iter().filter(|e| !e.ok.is_on()).count()),
             p50_ms: p50,
             p95_ms: p95,
             bytes: calls.iter().map(|e| e.result_bytes).sum(),
-            last_seen: calls.last().map(|e| e.timestamp).unwrap_or(0),
+            last_seen: calls.last().map(|e| e.timestamp).unwrap_or_default(),
         });
     }
     tools.sort_by_key(|stat| std::cmp::Reverse(stat.calls));
     Ok(JournalStats {
-        calls: events.len(),
-        errors: events.iter().filter(|e| !e.ok).count(),
+        calls: CallCount::new(events.len()),
+        errors: ErrorCount::new(events.iter().filter(|e| !e.ok.is_on()).count()),
         bytes: events.iter().map(|e| e.result_bytes).sum(),
         tools,
         signals,

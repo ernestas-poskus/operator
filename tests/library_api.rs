@@ -1,5 +1,8 @@
 //! The in-process library API must work without a GPU, model download, or MCP host.
-use operator::{Config, Error, Operator, SchemaVersion, WorkspaceConfig, detect_languages};
+use operator::{
+    Config, Error, LanguageId, Limit, LineNumber, Operator, PatternText, QueryText, RepoPath,
+    SchemaVersion, WorkspaceConfig, detect_languages,
+};
 
 fn fixture() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -14,7 +17,7 @@ fn fixture() -> tempfile::TempDir {
 
 fn unindexed(dir: &tempfile::TempDir) -> Operator {
     let mut cfg = Config::new(dir.path().to_path_buf());
-    cfg.languages = vec!["rust".into()];
+    cfg.languages = vec![LanguageId::parse("rust").expect("catalog id")];
     Operator::from_config_unindexed(cfg).expect("unindexed operator")
 }
 
@@ -34,14 +37,17 @@ fn open_unindexed_reads_the_workspace_config() {
     let dir = fixture();
     WorkspaceConfig {
         schema_version: Some(SchemaVersion::new(3)),
-        languages: Some(vec!["rust".into()]),
+        languages: Some(vec![LanguageId::parse("rust").expect("catalog id")]),
         ..Default::default()
     }
     .save(dir.path())
     .expect("save config");
     let operator = Operator::open_unindexed(dir.path()).expect("open");
     assert!(!operator.has_index());
-    assert_eq!(operator.config().languages, vec!["rust"]);
+    assert_eq!(
+        operator.config().languages,
+        vec![LanguageId::parse("rust").expect("catalog id")]
+    );
 }
 
 #[tokio::test]
@@ -49,22 +55,41 @@ async fn static_tools_work_without_an_index() {
     let dir = fixture();
     let operator = unindexed(&dir);
 
-    let outline = operator.repo_map(None, Some("rust"), 10).expect("outline");
+    let rust = LanguageId::parse("rust").expect("catalog id");
+    let outline = operator
+        .repo_map(None, Some(&rust), Limit::new(10))
+        .expect("outline");
     assert!(outline.iter().any(|file| file.path.contains("src/lib.rs")));
 
     let hits = operator
-        .search_code("pub fn add", "literal", None, Some("rust"), 10)
+        .search_code(
+            &QueryText::from("pub fn add"),
+            "literal",
+            None,
+            Some(&rust),
+            Limit::new(10),
+        )
         .await
         .expect("literal search");
     assert!(hits.iter().any(|hit| hit.path.contains("src/lib.rs")));
 
     let ast = operator
-        .search_ast(Some("fn main() {}"), None, None, Some("rust"), 10)
+        .search_ast(
+            Some(&PatternText::from("fn main() {}")),
+            None,
+            None,
+            Some(&rust),
+            Limit::new(10),
+        )
         .expect("ast search");
     assert!(!ast.is_empty());
 
     let source = operator
-        .read_source("src/lib.rs", Some(1), Some(1))
+        .read_source(
+            &RepoPath::from("src/lib.rs"),
+            Some(LineNumber::new(1)),
+            Some(LineNumber::new(1)),
+        )
         .expect("read");
     assert_eq!(source, "pub fn add(a: i32, b: i32) -> i32 { a + b }");
 }
@@ -74,7 +99,7 @@ async fn semantic_search_reports_the_missing_index() {
     let dir = fixture();
     let operator = unindexed(&dir);
     let error = operator
-        .search_semantic("add", None, None, 5)
+        .search_semantic(&QueryText::from("add"), None, None, Limit::new(5))
         .await
         .expect_err("semantic requires an index");
     assert!(matches!(error, Error::Tool(message) if message.contains("index_missing")));

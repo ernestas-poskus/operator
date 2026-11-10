@@ -3,9 +3,9 @@
 //! Every value with domain meaning is a distinct type instead of a bare
 //! `String`, integer, float, path or boolean: a language id can never be
 //! mistaken for a repo path, a line number for a byte count, or a token limit
-//! for a page size. Each wrapper is `#[serde(transparent)]` (and
-//! `#[schemars(transparent)]`), so the JSON and `.operator.toml` wire formats
-//! are unchanged — the typing is compile-time only.
+//! for a page size. Each wrapper is `#[serde(transparent)]`, so the JSON and
+//! `.operator.toml` wire formats are unchanged — the typing is compile-time
+//! only — and `#[schemars(inline)]`, so host-facing schemas stay primitives.
 //!
 //! Convention: the wrapper name is the meaning (`LineNumber`, `LanguageId`),
 //! `new`/`get` convert explicitly, `From`/`Into` convert implicitly, and the
@@ -39,6 +39,7 @@ macro_rules! string_newtype {
         )]
         #[serde(transparent)]
         #[schemars(transparent)]
+        #[schemars(inline)]
         pub struct $name(String);
 
         impl $name {
@@ -180,6 +181,7 @@ macro_rules! integer_newtype {
         )]
         #[serde(transparent)]
         #[schemars(transparent)]
+        #[schemars(inline)]
         pub struct $name($inner);
 
         impl $name {
@@ -379,6 +381,7 @@ macro_rules! float_newtype {
         )]
         #[serde(transparent)]
         #[schemars(transparent)]
+        #[schemars(inline)]
         pub struct $name(f32);
 
         impl $name {
@@ -509,6 +512,7 @@ macro_rules! path_newtype {
         )]
         #[serde(transparent)]
         #[schemars(transparent)]
+        #[schemars(inline)]
         pub struct $name(std::path::PathBuf);
 
         impl $name {
@@ -620,6 +624,7 @@ macro_rules! flag_newtype {
         )]
         #[serde(transparent)]
         #[schemars(transparent)]
+        #[schemars(inline)]
         pub struct $name(bool);
 
         impl $name {
@@ -691,6 +696,11 @@ macro_rules! flag_newtype {
 
 // ── Language and workspace identity ─────────────────────────────────────────
 
+string_newtype!(
+    #[doc = "An unvalidated language id from a host; checked against the selected set."]
+    LanguageFilter
+);
+
 /// A canonical ast-grep language id (`rust`, `typescript`, …).
 ///
 /// Construction goes through the catalog: [`LanguageId::from_lang`] for a
@@ -702,6 +712,7 @@ macro_rules! flag_newtype {
 )]
 #[serde(transparent)]
 #[schemars(transparent)]
+#[schemars(inline)]
 pub struct LanguageId(String);
 
 impl LanguageId {
@@ -758,15 +769,20 @@ impl From<ast_grep_language::SupportLang> for LanguageId {
     }
 }
 
-impl From<String> for LanguageId {
-    fn from(value: String) -> Self {
-        Self::parse(&value).unwrap_or(Self(value))
+impl TryFrom<&str> for LanguageId {
+    type Error = crate::error::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::parse(value)
+            .ok_or_else(|| crate::error::Error::Config(format!("unsupported language `{value}`")))
     }
 }
 
-impl From<&str> for LanguageId {
-    fn from(value: &str) -> Self {
-        Self::from(value.to_string())
+impl TryFrom<String> for LanguageId {
+    type Error = crate::error::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
     }
 }
 
@@ -852,6 +868,10 @@ string_newtype!(
 string_newtype!(
     #[doc = "Source text: a file body, chunk body, snippet or matched line."]
     SourceText
+);
+string_newtype!(
+    #[doc = "A stored source-language label (the file extension, or `text`)."]
+    LanguageLabel
 );
 string_newtype!(
     #[doc = "One outline symbol's name."]
@@ -1031,8 +1051,8 @@ integer_newtype!(
     u32
 );
 integer_newtype!(
-    #[doc = "A wall-clock timestamp in Unix milliseconds."]
-    UnixMillis,
+    #[doc = "A wall-clock timestamp in Unix seconds."]
+    UnixSeconds,
     u64
 );
 integer_newtype!(
@@ -1151,6 +1171,17 @@ string_newtype!(
     CommandArg
 );
 
+// ── CLI input ───────────────────────────────────────────────────────────────
+
+string_newtype!(
+    #[doc = "A learn lookback window (`7d`, `24h`), validated at use."]
+    LookbackWindow
+);
+string_newtype!(
+    #[doc = "A comma-separated CLI list, split at the parse site."]
+    CommaSeparated
+);
+
 /// A collection of transports/host argv entries.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -1257,5 +1288,38 @@ impl From<Vec<f32>> for Embedding {
 impl From<Embedding> for Vec<f32> {
     fn from(value: Embedding) -> Vec<f32> {
         value.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LanguageId;
+
+    #[test]
+    fn a_catalog_id_is_the_only_constructible_language_id() {
+        assert_eq!(
+            LanguageId::try_from("rust").expect("catalog id").as_str(),
+            "rust"
+        );
+        assert_eq!(
+            LanguageId::try_from("TypeScript".to_string())
+                .expect("catalog alias")
+                .as_str(),
+            "typescript"
+        );
+        let error = LanguageId::try_from("not-a-language").expect_err("unknown id");
+        assert_eq!(error.to_string(), "unsupported language `not-a-language`");
+    }
+
+    #[test]
+    fn language_ids_stay_transparent_on_the_wire() {
+        let id = LanguageId::try_from("rust").expect("catalog id");
+        let json = serde_json::to_value(&id).expect("serialize");
+        assert_eq!(json, serde_json::json!("rust"));
+        assert_eq!(
+            serde_json::from_value::<LanguageId>(json).expect("deserialize"),
+            id
+        );
+        assert!(serde_json::from_value::<LanguageId>(serde_json::json!("nope")).is_err());
     }
 }
