@@ -2,12 +2,13 @@
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
-use dialoguer::MultiSelect;
+use demand::{DemandOption, MultiSelect};
 
 use crate::cli::InitArgs;
 use crate::error::{Error, Result};
 use crate::languages;
 use crate::mcp_register;
+use crate::types::LanguageId;
 use crate::workspace_config::WorkspaceConfig;
 
 pub async fn run(args: InitArgs) -> Result<()> {
@@ -44,24 +45,16 @@ pub async fn run(args: InitArgs) -> Result<()> {
         parse_selection(&raw)?
     } else if args.all_supported {
         languages::supported_ids()
-            .into_iter()
-            .map(str::to_string)
-            .collect()
     } else if args.yes || !std::io::stdin().is_terminal() {
         detected
             .iter()
-            .map(|d| languages::canonical_id(d.lang).to_string())
+            .map(|d| LanguageId::from_lang(d.lang))
             .collect()
     } else {
         prompt(&detected)?
     };
     if selected.is_empty() {
         return Err(Error::Config("no languages selected".into()));
-    }
-    for id in &selected {
-        if languages::parse_id(id).is_none() {
-            return Err(Error::Config(format!("unsupported language `{id}`")));
-        }
     }
     let include_paths = args
         .include
@@ -163,34 +156,41 @@ fn parse_paths(raw: &str) -> Result<Vec<String>> {
         .collect())
 }
 
-fn parse_selection(raw: &str) -> Result<Vec<String>> {
+fn parse_selection(raw: &str) -> Result<Vec<LanguageId>> {
     let mut out = Vec::new();
     for part in raw.split(',') {
         let id = part.trim();
         if id.is_empty() {
             continue;
         }
-        let lang = languages::parse_id(id)
+        let lang = LanguageId::parse(id)
             .ok_or_else(|| Error::Config(format!("unsupported language `{id}`")))?;
-        out.push(languages::canonical_id(lang).to_string());
+        out.push(lang);
     }
     Ok(out)
 }
 
-fn prompt(detected: &[languages::DetectedLanguage]) -> Result<Vec<String>> {
-    let items: Vec<String> = detected
-        .iter()
-        .map(|d| format!("{} ({} files)", languages::display_name(d.lang), d.files))
-        .collect();
-    let defaults: Vec<bool> = vec![true; items.len()];
-    let picked = MultiSelect::new()
-        .with_prompt("Languages to index")
-        .items(&items)
-        .defaults(&defaults)
-        .interact()
-        .map_err(|e| Error::Config(format!("language prompt: {e}")))?;
-    Ok(picked
-        .into_iter()
-        .map(|i| languages::canonical_id(detected[i].lang).to_string())
-        .collect())
+/// Walk the detected languages and return the chosen ids.
+///
+/// The picker runs on stderr (demand draws there), so it can never corrupt a
+/// host's MCP stdio stream.
+fn prompt(detected: &[languages::DetectedLanguage]) -> Result<Vec<LanguageId>> {
+    let mut picker = MultiSelect::new("Languages to index")
+        .description("Space toggles a language, enter confirms. Detected languages start selected.")
+        .min(1)
+        .filterable(true);
+    for entry in detected {
+        let label = format!(
+            "{} ({} files)",
+            languages::display_name(entry.lang),
+            entry.files
+        );
+        picker = picker.option(
+            DemandOption::with_label(label, LanguageId::from_lang(entry.lang)).selected(true),
+        );
+    }
+    picker.run().map_err(|error| match error.kind() {
+        std::io::ErrorKind::Interrupted => Error::Config("language selection cancelled".into()),
+        _ => Error::Config(format!("language prompt: {error}")),
+    })
 }

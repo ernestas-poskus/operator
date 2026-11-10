@@ -27,6 +27,7 @@ mod symbol_chunker;
 mod tools;
 #[cfg(feature = "tui")]
 mod tui;
+mod types;
 pub mod workspace_config;
 
 #[cfg(feature = "tui")]
@@ -34,10 +35,7 @@ use std::io::IsTerminal;
 
 use cli::Command;
 
-pub use api::{
-    CodeMatch, JournalStats, LanguageSummary, Operator, OutlineFile, OutlineSymbol,
-    RetrievalIndexStatus, RetrievalRefresh, SearchHit, SemanticHit, detect_languages,
-};
+pub use api::*;
 pub use config::Config;
 pub use error::{Error, Result};
 pub use workspace_config::WorkspaceConfig;

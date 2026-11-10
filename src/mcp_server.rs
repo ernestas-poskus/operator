@@ -89,7 +89,7 @@ fn error_result(message: impl Into<String>) -> CallToolResult {
 
 fn language_error(state: &tools::ToolState, language: &Option<String>) -> Option<String> {
     let language = language.as_deref()?;
-    if state.cfg.languages.iter().any(|l| l == language) {
+    if state.cfg.languages.iter().any(|l| l.as_str() == language) {
         None
     } else {
         Some(format!("language `{language}` is not selected"))

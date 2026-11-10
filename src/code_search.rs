@@ -341,7 +341,7 @@ fn selected_source(cfg: &Config, path: &Path) -> bool {
         return false;
     };
     let id = crate::languages::canonical_id(lang);
-    cfg.languages.iter().any(|selected| selected == id)
+    cfg.languages.iter().any(|selected| selected.as_str() == id)
 }
 
 /// Discover every ast-grep-recognized source file. Callers apply the selected
@@ -1208,11 +1208,14 @@ fn exclude_identity_fragment(raw: &[String]) -> String {
 }
 
 /// A sorted selected-language set is a distinct corpus input.
-fn languages_identity_fragment(languages: &[String]) -> String {
+fn languages_identity_fragment(languages: &[crate::types::LanguageId]) -> String {
     if languages.is_empty() {
         return String::new();
     }
-    let mut langs: Vec<&str> = languages.iter().map(String::as_str).collect();
+    let mut langs: Vec<&str> = languages
+        .iter()
+        .map(crate::types::LanguageId::as_str)
+        .collect();
     langs.sort_unstable();
     let joined = langs.join("-");
     let mut digest = Sha256::new();

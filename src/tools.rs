@@ -10,6 +10,7 @@ use crate::ast_grep::{self, CodeMatch, OutlineFile};
 use crate::code_search::LocalCodeIndex;
 use crate::config::Config;
 use crate::languages;
+use crate::types::LanguageId;
 
 pub struct ToolState {
     pub cfg: Config,
@@ -41,7 +42,7 @@ fn selected(cfg: &Config, path: &Path) -> bool {
         return false;
     };
     let id = languages::canonical_id(lang);
-    cfg.languages.iter().any(|l| l == id)
+    cfg.languages.iter().any(|l| l.as_str() == id)
 }
 
 fn walk(cfg: &Config, path_filter: Option<&str>) -> Vec<PathBuf> {
@@ -92,8 +93,10 @@ pub fn repo_map(
     language: Option<&str>,
     limit: usize,
 ) -> Result<Vec<OutlineFile>, String> {
-    let selected: Vec<String> = match language {
-        Some(lang) => vec![lang.to_string()],
+    let selected: Vec<LanguageId> = match language {
+        Some(lang) => {
+            vec![LanguageId::parse(lang).ok_or_else(|| format!("unsupported language `{lang}`"))?]
+        }
         None => state.cfg.languages.clone(),
     };
     ast_grep::outline(&state.cfg.workspace_root, &selected, path, limit)
@@ -193,8 +196,10 @@ pub fn search_ast(
     language: Option<&str>,
     limit: usize,
 ) -> Result<Vec<CodeMatch>, String> {
-    let selected: Vec<String> = match language {
-        Some(lang) => vec![lang.to_string()],
+    let selected: Vec<LanguageId> = match language {
+        Some(lang) => {
+            vec![LanguageId::parse(lang).ok_or_else(|| format!("unsupported language `{lang}`"))?]
+        }
         None => state.cfg.languages.clone(),
     };
     ast_grep::search(
@@ -215,7 +220,7 @@ pub async fn search_semantic(
     limit: usize,
 ) -> Result<Vec<SemanticHit>, String> {
     if let Some(lang) = language
-        && !state.cfg.languages.iter().any(|l| l == lang)
+        && !state.cfg.languages.iter().any(|l| l.as_str() == lang)
     {
         return Err(format!("language `{lang}` is not selected"));
     }

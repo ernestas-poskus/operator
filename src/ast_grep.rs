@@ -13,6 +13,7 @@ use ignore::WalkBuilder;
 use serde::Serialize;
 
 use crate::languages;
+use crate::types::LanguageId;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CodeMatch {
@@ -41,10 +42,10 @@ pub struct OutlineFile {
     pub symbols: Vec<OutlineSymbol>,
 }
 
-fn selected_languages(languages: &[String]) -> Vec<SupportLang> {
-    languages
+fn selected_languages(selected: &[LanguageId]) -> Vec<SupportLang> {
+    selected
         .iter()
-        .filter_map(|id| languages::parse_id(id))
+        .filter_map(|id| languages::parse_id(id.as_str()))
         .collect()
 }
 
@@ -94,7 +95,7 @@ fn walk(
 
 pub fn search(
     root: &Path,
-    selected: &[String],
+    selected: &[LanguageId],
     pattern: Option<&str>,
     rule: Option<&str>,
     path_filter: Option<&str>,
@@ -181,7 +182,7 @@ fn outline_extractors() -> &'static BTreeMap<&'static str, CombinedExtractors<Su
 
 pub fn outline(
     root: &Path,
-    selected: &[String],
+    selected: &[LanguageId],
     path_filter: Option<&str>,
     limit: usize,
 ) -> Result<Vec<OutlineFile>, String> {
@@ -248,7 +249,7 @@ mod tests {
     #[test]
     fn pattern_search_is_language_scoped_and_bounded() {
         let dir = fixture();
-        let selected = vec!["rust".to_string(), "go".to_string()];
+        let selected = vec![LanguageId::from("rust"), LanguageId::from("go")];
         let hits = search(
             dir.path(),
             &selected,
@@ -265,7 +266,7 @@ mod tests {
     #[test]
     fn rule_search_works_and_outline_falls_back_for_dart() {
         let dir = fixture();
-        let selected = vec!["dart".to_string()];
+        let selected = vec![LanguageId::from("dart")];
         let rule = "id: any-fn\nlanguage: Dart\nrule:\n  pattern: int $N($$$A) => $$$B;";
         let hits = search(dir.path(), &selected, None, Some(rule), None, 10).unwrap();
         assert_eq!(hits.len(), 1);

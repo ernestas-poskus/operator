@@ -22,6 +22,7 @@ use crate::code_search::{IndexEvent, RetrievalIndexStatus};
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::languages;
+use crate::types::LanguageId;
 use crate::workspace_config::WorkspaceConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,7 +48,7 @@ struct Node {
     is_dir: bool,
     depth: usize,
     parent: Option<PathBuf>,
-    language: Option<String>,
+    language: Option<LanguageId>,
     files: usize,
 }
 
@@ -62,7 +63,7 @@ struct App {
     focus: bool,
     lang_index: usize,
     lang_state: ListState,
-    selected_languages: BTreeSet<String>,
+    selected_languages: BTreeSet<LanguageId>,
     base: WorkspaceConfig,
     detected: Vec<languages::DetectedLanguage>,
     explicit: HashMap<String, Selection>,
@@ -93,7 +94,7 @@ impl App {
     ) -> Self {
         let selected_languages = detected
             .iter()
-            .map(|d| languages::canonical_id(d.lang).to_string())
+            .map(|d| LanguageId::from_lang(d.lang))
             .collect();
         let trees = build_tree(&workspace);
         let mut expanded = HashSet::new();
@@ -157,7 +158,7 @@ impl App {
     fn prefill(&mut self) {
         if let Ok(Some(cfg)) = WorkspaceConfig::load(&self.workspace) {
             if let Some(langs) = cfg.languages {
-                let chosen: BTreeSet<String> = langs
+                let chosen: BTreeSet<LanguageId> = langs
                     .into_iter()
                     .filter(|l| self.selected_languages.contains(l))
                     .collect();
@@ -470,7 +471,7 @@ impl App {
         let Some(lang) = self.detected.get(self.lang_index) else {
             return;
         };
-        let id = languages::canonical_id(lang.lang).to_string();
+        let id = LanguageId::from_lang(lang.lang);
         if self.selected_languages.contains(&id) {
             if self.selected_languages.len() > 1 {
                 self.selected_languages.remove(&id);
@@ -773,8 +774,8 @@ impl App {
             .detected
             .iter()
             .map(|d| {
-                let id = languages::canonical_id(d.lang);
-                let check = if self.selected_languages.contains(id) {
+                let id = LanguageId::from_lang(d.lang);
+                let check = if self.selected_languages.contains(&id) {
                     "[x]"
                 } else {
                     "[ ]"
@@ -1102,7 +1103,7 @@ fn build_tree(root: &Path) -> Vec<Node> {
             let language = if is_dir {
                 None
             } else {
-                languages::language_id_for_path(&path).map(str::to_string)
+                languages::language_id_for_path(&path)
             };
             out.push(Node {
                 path: path.clone(),
@@ -1195,19 +1196,15 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     }
     let mut app = App::new(workspace, "init", detected);
     if let Some(raw) = args.languages.as_deref() {
-        let chosen: BTreeSet<String> = raw
+        let chosen: BTreeSet<LanguageId> = raw
             .split(',')
-            .filter_map(|id| languages::parse_id(id.trim()))
-            .map(|lang| languages::canonical_id(lang).to_string())
+            .filter_map(|id| LanguageId::parse(id.trim()))
             .collect();
         if !chosen.is_empty() {
             app.selected_languages = chosen;
         }
     } else if args.all_supported {
-        app.selected_languages = languages::supported_ids()
-            .into_iter()
-            .map(str::to_string)
-            .collect();
+        app.selected_languages = languages::supported_ids().into_iter().collect();
     }
     if let Some(raw) = args.include.as_deref() {
         for path in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {

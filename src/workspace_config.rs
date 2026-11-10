@@ -3,13 +3,15 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::types::LanguageId;
+
 pub const CONFIG_FILE: &str = ".operator.toml";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspaceConfig {
     pub schema_version: Option<u32>,
-    pub languages: Option<Vec<String>>,
+    pub languages: Option<Vec<LanguageId>>,
     pub retrieval_include: Option<Vec<String>>,
     pub retrieval_exclude: Option<Vec<String>>,
     pub retrieval_cache_dir: Option<PathBuf>,

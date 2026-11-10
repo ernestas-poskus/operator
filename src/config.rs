@@ -2,6 +2,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::chunk_context::ChunkEnrichment;
+use crate::types::LanguageId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RetrievalVectorIndex {
@@ -89,7 +90,7 @@ impl EmbedBackend {
 pub struct Config {
     pub workspace_root: PathBuf,
     /// Canonical ast-grep language ids selected at init.
-    pub languages: Vec<String>,
+    pub languages: Vec<LanguageId>,
     pub retrieval_cache_dir: PathBuf,
     pub retrieval_chunk_lines: usize,
     /// Lines repeated between consecutive sliding windows (default

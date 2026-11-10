@@ -20,13 +20,14 @@ pub use crate::ast_grep::{CodeMatch, OutlineFile, OutlineSymbol};
 pub use crate::code_search::{IndexEvent, RetrievalIndexStatus, RetrievalRefresh};
 pub use crate::learn::JournalStats;
 pub use crate::tools::{SearchHit, SemanticHit};
+pub use crate::types::*;
 
 /// One detected language and its file count.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LanguageSummary {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub files: usize,
+    pub id: LanguageId,
+    pub name: LanguageName,
+    pub files: FileCount,
 }
 
 /// Detect the ast-grep languages present under `workspace`.
@@ -34,8 +35,8 @@ pub fn detect_languages(workspace: &Path) -> Vec<LanguageSummary> {
     languages::detect(workspace)
         .into_iter()
         .map(|detected| LanguageSummary {
-            id: languages::canonical_id(detected.lang),
-            name: languages::display_name(detected.lang),
+            id: LanguageId::from_lang(detected.lang),
+            name: LanguageName::from(languages::display_name(detected.lang)),
             files: detected.files,
         })
         .collect()

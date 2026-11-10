@@ -43,11 +43,6 @@ pub fn validate(cfg: &crate::config::Config) -> Result<()> {
             "no languages selected; run `operator init`".into(),
         ));
     }
-    for id in &cfg.languages {
-        if crate::languages::parse_id(id).is_none() {
-            return Err(Error::Config(format!("unsupported language `{id}`")));
-        }
-    }
     let root = std::fs::canonicalize(&cfg.workspace_root)
         .map_err(|e| Error::Config(format!("workspace: {e}")))?;
     crate::fastembed::validate(cfg).map_err(Error::Config)?;

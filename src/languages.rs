@@ -6,6 +6,8 @@ use ast_grep_core::language::Language;
 use ast_grep_language::SupportLang;
 use ignore::WalkBuilder;
 
+use crate::types::{FileCount, LanguageId};
+
 pub fn canonical_id(lang: SupportLang) -> &'static str {
     // The Debug spelling is the stable variant name; lower-case it in the
     // catalog below so no second hand-maintained table can drift.
@@ -95,20 +97,20 @@ pub fn from_path(path: &Path) -> Option<SupportLang> {
 }
 
 #[cfg(feature = "tui")]
-pub fn language_id_for_path(path: &Path) -> Option<&'static str> {
-    from_path(path).map(canonical_id)
+pub fn language_id_for_path(path: &Path) -> Option<LanguageId> {
+    from_path(path).map(LanguageId::from_lang)
 }
 
 #[derive(Debug, Clone)]
 pub struct DetectedLanguage {
     pub lang: SupportLang,
-    pub files: usize,
+    pub files: FileCount,
 }
 
 /// Walk the workspace with gitignore semantics and count files by ast-grep
 /// language. Symlinks are followed; failures are ignored like the index walk.
 pub fn detect(root: &Path) -> Vec<DetectedLanguage> {
-    let mut counts: BTreeMap<&'static str, (SupportLang, usize)> = BTreeMap::new();
+    let mut counts: BTreeMap<&'static str, (SupportLang, FileCount)> = BTreeMap::new();
     let walker = WalkBuilder::new(root)
         .hidden(false)
         .git_ignore(true)
@@ -133,7 +135,9 @@ pub fn detect(root: &Path) -> Vec<DetectedLanguage> {
             continue;
         };
         let id = canonical_id(lang);
-        let slot = counts.entry(id).or_insert_with(|| (lang, 0));
+        let slot = counts
+            .entry(id)
+            .or_insert_with(|| (lang, FileCount::new(0)));
         slot.1 += 1;
     }
     counts
@@ -142,8 +146,12 @@ pub fn detect(root: &Path) -> Vec<DetectedLanguage> {
         .collect()
 }
 
-pub fn supported_ids() -> Vec<&'static str> {
-    catalog().iter().copied().map(canonical_id).collect()
+pub fn supported_ids() -> Vec<LanguageId> {
+    catalog()
+        .iter()
+        .copied()
+        .map(LanguageId::from_lang)
+        .collect()
 }
 
 #[cfg(test)]
