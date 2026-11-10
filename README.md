@@ -115,6 +115,157 @@ See [docs/tui.md](docs/tui.md) for keys and selection semantics. Non-TTY use
 All results are bounded and read-only. Operator does not expose type-aware
 references, diagnostics, rename, or edits; use the host’s compiler/LSP for those.
 
+
+## Design and stack
+
+### Design choices
+
+- **Read-only by construction.** The five tools return bounded snippets and
+  never write, edit, rename, or run code. Type-aware navigation and diagnostics
+  stay with the host's compiler/LSP.
+- **Two retrieval paths, one workspace.** ast-grep handles outline and structural
+  patterns without an index; LanceDB handles indexed lexical and semantic
+  retrieval. Literal/regex search and `read_source` remain available when the
+  model backend is absent.
+- **Local-first.** The index lives under `.cache/retrieval`; models are loaded
+  in-process through fastembed/candle. There is no model HTTP server, provider
+  API key, or remote control plane. The first run downloads the model snapshots
+  (about 2.5 GB); later runs use the cache offline.
+- **Explicit corpus identity.** Languages, include/exclude paths, chunker,
+  embedder, backend and index settings are baked into the table name. Changing a
+  material input creates a new table and requires `operator reindex`; it never
+  silently mixes old and new vectors.
+- **Cheap-to-expensive ranking.** Dense and FTS candidates are fused, then the
+  optional cross-encoder reranks only the fused pool. RRF is the default fusion;
+  rerank pool 20 is the default cost/quality point.
+- **MCP plus library.** The binary owns setup/TUI and stdio MCP; the library
+  facade (`operator::Operator`) exposes the same read-only operations in-process.
+  The TUI is an optional default feature, so library consumers can omit it.
+- **Trust boundaries.** `read_source` and index discovery canonicalize paths and
+  reject escapes; the learn journal stores hashed arguments and result shapes,
+  not source text.
+
+### Stack
+
+| Layer | Choice |
+|---|---|
+| Language | Rust 1.95, edition 2024 |
+| AST / outline | ast-grep 0.51 (`core`, `language`, `config`, `outline`), tree-sitter parsers |
+| Vector index | LanceDB 0.41, Arrow 58 |
+| Embedding + reranking | fastembed 7.7 with candle 0.11; Metal on macOS, CUDA on Linux/Windows; F16 by default |
+| Full-text | LanceDB FTS with code-aware identifier tokenization |
+| Chunking | xberg 1.3 with anydoc for document conversion |
+| MCP | rmcp 3.7 over stdio |
+| Async / CLI | Tokio 1, argh |
+| TUI | ratatui 0.30, crossterm 0.29, notify 8 (optional `tui` feature) |
+| Serialization | serde, serde_json, TOML |
+
+## Evaluation
+
+These are aggregate results from the retrieval evaluation work. The harness and
+query fixtures are intentionally not distributed; no private query text or
+judged source snippets are included here. All quality runs use top-5 documents,
+path-deduped after reranking, on a frozen Rust corpus of 243 files / 4,404
+chunks. Statistics are paired sign tests plus bootstrap 95% confidence intervals
+against the same-run baseline.
+
+### Ranking and fusion
+
+Baseline on the 109-query instrument: **nDCG@5 0.8018, recall@5 0.8899, MRR
+0.7735**, with an oracle-reranker nDCG@5 of **0.9158**; the reranker is the
+largest ranking lever, leaving about 0.11 nDCG@5 of headroom.
+
+| Configuration | n | Δ nDCG@5 | 95% CI | W/L | p |
+|---|---:|---:|---|---:|---:|
+| RRF vs weighted, 109 queries | 109 | **+0.0217** | [−0.0081, +0.0559] | 9/4 | 0.267 |
+| RRF + pool 20, 109 queries | 109 | **+0.0220** | [−0.0093, +0.0575] | 9/5 | 0.424 |
+| RRF vs weighted, repaired set | 300 | **+0.0194** | [+0.0022, +0.0389] | 19/14 | 0.49 |
+| RRF vs weighted, confirmation | 300 | **+0.0244** | [+0.0060, +0.0455] | 21/14 | 0.31 |
+| RRF vs weighted, independent | 120 | **+0.0167** | [−0.0053, +0.0454] | 3/4 | 1.00 |
+
+RRF is the shipped default because it is consistently positive across four
+instruments, including a blind-authored independent set, and its gains come
+from lexical rescues of identifier queries. Be explicit about the limit: the
+strict pre-registered significance gate was not met (the largest runs still have
+p ≈ 0.3–0.5 because most queries have no decided pair). The measured effect is
+small but consistent; this is a product decision, not a claim of significance.
+
+### Rerank pool and latency
+
+| Configuration | n | nDCG@5 | Δ nDCG@5 | recall@5 | MRR | p50 / p95 ms |
+|---|---:|---:|---:|---:|---:|---:|
+| pool 30 | 300 | 0.7986 | — | 0.8867 | 0.7762 | 886 / 971 |
+| **pool 20** | 300 | 0.7996 | **+0.0010** | 0.8817 | 0.7794 | **600 / 662** |
+| pool 30, independent | 120 | 0.8747 | — | 0.9333 | 0.8801 | 1025 / 1411 |
+| **pool 20, independent** | 120 | 0.8722 | −0.0025 | 0.9208 | 0.8843 | **811 / 999** |
+
+Pool 20 is non-inferior on both instruments and **~32% faster at p95** on the
+300-query set (~29% on the independent set). On the 109-query instrument,
+RRF + pool 20 measured **602 ms p50 / 661 ms p95** versus 926/1389 ms for the
+weighted pool-30 baseline, with nDCG@5 0.8239. Pool selection is query-time
+only, so changing it does not reindex the workspace.
+
+### Model choices
+
+Embedder candidates on the 109-query instrument (incumbent
+`mixedbread-ai/mxbai-embed-large-v1` at nDCG@5 0.7984):
+
+| Candidate | nDCG@5 | Δ | Result |
+|---|---:|---:|---|
+| mxbai-embed-large-v1 (incumbent) | 0.7984 | — | shipped |
+| F2LLM-v2-0.6B | 0.8082 | +0.0098 | no decision |
+| papr-embed-code-0.6B | 0.8117 | +0.0133 | no decision |
+| Qwen3-Embedding-0.6B | 0.8025 | +0.0041 | no decision |
+| C2LLM-0.5B | 0.8220 | +0.0236 | point estimate only; p=0.65 and slower |
+
+No embedder candidate cleared the adoption rule (effect floor, significance and
+latency), so the incumbent stays. Reranker candidates likewise did not beat
+`Qwen/Qwen3-Reranker-0.6B` (0.7984): coreb-code-reranker 0.7696, zerank-2 0.7397
+(significantly worse), mxbai-rerank-large 0.7680, mxbai-rerank-base 0.7632.
+The shipped code-search instruction matters: removing it costs **−0.0327**
+nDCG@5, while the Rust-flavoured variant is flat.
+
+Other measured choices:
+- Reranking off: **−0.1112 nDCG@5** (p ≈ 0) — keep the reranker.
+- Reranker window 8192 vs 512: **−0.0003** — keep 512.
+- F32 vs F16: rank-identical — keep F16.
+- Dense fusion weights 1.5/2.5 vs 2.0: no material delta — keep 2.0.
+
+### Speed: in-process fastembed vs the old omlx HTTP backend
+
+Same 109-query, 5-chunk measurement for both rows (the historical metric that
+matches the archived omlx baseline; subsequent ranking results use the
+path-deduped method described above):
+
+| Backend | recall@5 | MRR | nDCG@5 | p50 ms | p95 ms |
+|---|---:|---:|---:|---:|---:|
+| omlx HTTP + MLX | 0.8486 | 0.7855 | 0.7984 | 1295 | 1609 |
+| **fastembed/candle, in-process** | 0.8395 | 0.7691 | 0.7861 | **887** | **963** |
+| Δ | −0.0092 | −0.0164 | −0.0123 | **−31%** | **−40%** |
+
+The quality difference was not statistically detectable in the paired analysis
+(all confidence intervals included zero), but it is a real point-estimate gap;
+the likely source is MLX-quantised weights versus fastembed F16. A later
+measurement-method correction re-baselined the same fastembed configuration at
+nDCG@5 0.8018 with path-deduped top-5 documents, so the 0.7861 row is not
+directly comparable to the 109-query baseline above. The operational win is
+clear: no model server process, no HTTP round trip, no provider token, and
+**31–40% lower query latency** while remaining in the same quality band.
+
+### Evaluation limits
+
+- All quality numbers are from one frozen Rust corpus. Other languages, larger
+  repositories and different query mixes can change the ranking.
+- CUDA builds are compile- and unit-tested without a GPU; Metal runtime results
+  are the measured ones. CUDA runtime parity must be re-run before a backend
+  release.
+- The model and fusion matrices are decision evidence, not a public benchmark;
+  the fixtures and per-query records are not shipped.
+- RRF's effect is small relative to the current instrument's decision power.
+  Treat the default as a shipped product choice with a transparent caveat, not
+  as a statistically significant win.
+
+
 ## Languages
 
 All ast-grep bundled languages:
