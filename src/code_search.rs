@@ -90,11 +90,11 @@ pub const LOCAL_SEARCH_LOGIC_VERSION: &str = "local-search-9";
 /// (`mxbai-embed-large-v1`). The Arrow schema and the batch guard take their
 /// width from here, and every vector returned by the model is validated
 /// against it.
-pub const DENSE_DIM: usize = 1024;
+pub const DENSE_DIM: crate::types::EmbedDim = crate::types::EmbedDim::new(1024);
 /// Overlap lines between adjacent sliding-window chunks.
-pub const CHUNK_OVERLAP_LINES: usize = 10;
+pub const CHUNK_OVERLAP_LINES: crate::types::ChunkOverlap = crate::types::ChunkOverlap::new(10);
 /// Candidates fetched per stage (dense and FTS) before fusion.
-pub const STAGE_CANDIDATES: usize = 50;
+pub const STAGE_CANDIDATES: crate::types::CandidateCount = crate::types::CandidateCount::new(50);
 /// Candidates passed to the cross-encoder after fusion, and the hard ceiling
 /// on final results: the single retained cap is `min(user samples,
 /// RERANK_CANDIDATES)` — a caller asking for more than the rerank pool simply
@@ -103,7 +103,7 @@ pub const STAGE_CANDIDATES: usize = 50;
 /// `20` is the shipped cost/quality point. Query-time only —
 /// `RERANK_CANDIDATES` is **not** in the index identity, so no workspace
 /// re-embeds.
-pub const RERANK_CANDIDATES: usize = 20;
+pub const RERANK_CANDIDATES: crate::types::CandidateCount = crate::types::CandidateCount::new(20);
 /// Token budget per chunk, matching mxbai-embed-large-v1's 512-token context
 /// window — the binding constraint on the **embedder**: the model truncates
 /// to this many tokens, so a chunk over it is lossily cut before embedding.
@@ -142,7 +142,7 @@ pub fn chunk_char_budget(max_tokens: usize) -> usize {
 /// −0.0034/−0.0009. The premise no longer holds: production chunks are 1294
 /// characters and the 512-token budget is 1275 characters, so the cross-encoder
 /// already sees all but ~19 characters of every chunk.
-pub const DEFAULT_RERANK_MAX_TOKENS: usize = 512;
+pub const DEFAULT_RERANK_MAX_TOKENS: crate::types::TokenLimit = crate::types::TokenLimit::new(512);
 /// Embedding batch size.
 pub const EMBED_BATCH_SIZE: usize = 32;
 /// Chunks one `embed()` call may carry when several files are grouped.
@@ -381,11 +381,11 @@ pub const INCLUDE_MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 /// them needs the filesystem, and the identity must be computable from config
 /// alone. A workspace that spells one folder two ways builds two tables, which
 /// is the same cost as any other identity change and never mixes two corpora.
-pub fn normalized_includes(raw: &[String]) -> Vec<String> {
+pub fn normalized_includes(raw: &[impl AsRef<str>]) -> Vec<String> {
     let mut out: Vec<String> = raw
         .iter()
         .map(|entry| {
-            let trimmed = entry.trim();
+            let trimmed = entry.as_ref().trim();
             let trimmed = trimmed.strip_prefix("./").unwrap_or(trimmed);
             trimmed.trim_end_matches('/').to_string()
         })
@@ -399,7 +399,7 @@ pub fn normalized_includes(raw: &[String]) -> Vec<String> {
 /// The include set resolved against the workspace root, for walking. Total:
 /// a missing or escaping entry simply yields no files. `validate_includes` is
 /// the strict twin `reindex` uses before it records anything.
-pub fn resolve_includes(workspace_root: &Path, raw: &[String]) -> Vec<PathBuf> {
+pub fn resolve_includes(workspace_root: &Path, raw: &[impl AsRef<str>]) -> Vec<PathBuf> {
     normalized_includes(raw)
         .iter()
         .map(|entry| {
@@ -421,7 +421,10 @@ pub fn resolve_includes(workspace_root: &Path, raw: &[String]) -> Vec<PathBuf> {
 /// keys stay workspace-relative, crate-scope attribution keeps working, and the
 /// `serve` watcher's single recursive root still covers every indexed file.
 #[allow(dead_code)]
-pub fn validate_includes(workspace_root: &Path, raw: &[String]) -> Result<Vec<PathBuf>, String> {
+pub fn validate_includes(
+    workspace_root: &Path,
+    raw: &[impl AsRef<str>],
+) -> Result<Vec<PathBuf>, String> {
     let normalized = normalized_includes(raw);
     if normalized.is_empty() {
         return Err(
@@ -454,7 +457,7 @@ pub fn validate_includes(workspace_root: &Path, raw: &[String]) -> Result<Vec<Pa
 /// The identity fragment an include set contributes: `""` for the empty set —
 /// so a workspace that never used the knob keeps its table and manifest names
 /// byte-for-byte — else `_inc<sha256[:8]>` of the canonical set. Pure.
-pub fn include_identity_fragment(raw: &[String]) -> String {
+pub fn include_identity_fragment(raw: &[impl AsRef<str>]) -> String {
     let normalized = normalized_includes(raw);
     if normalized.is_empty() {
         return String::new();
@@ -689,7 +692,7 @@ pub fn sliding_window_chunks(
         text,
         file_hash,
         lines_per_chunk,
-        CHUNK_OVERLAP_LINES,
+        CHUNK_OVERLAP_LINES.get(),
         ChunkEnrichment::PATH,
         "",
     )
@@ -758,7 +761,7 @@ pub fn chunks_for_file(
     crate_dir: &str,
 ) -> Vec<LocalChunk> {
     let enrichment = cfg.retrieval_enrichment;
-    let overlap = cfg.retrieval_chunk_overlap;
+    let overlap = cfg.retrieval_chunk_overlap.get();
     let module_path = module_path_of(crate_name, crate_dir, path);
     // Each chunker degrades to the sliding window on its own failure path (xberg
     // internally, symbol via an empty segmentation), so chunking never fails.
@@ -767,7 +770,7 @@ pub fn chunks_for_file(
             path,
             text,
             file_hash,
-            cfg.retrieval_chunk_lines,
+            cfg.retrieval_chunk_lines.get(),
             overlap,
             enrichment,
             &module_path,
@@ -776,7 +779,7 @@ pub fn chunks_for_file(
             path,
             text,
             file_hash,
-            cfg.retrieval_chunk_lines,
+            cfg.retrieval_chunk_lines.get(),
             overlap,
             enrichment,
             &module_path,
@@ -837,7 +840,7 @@ pub fn xberg_chunks(
         text,
         file_hash,
         lines_per_chunk,
-        CHUNK_OVERLAP_LINES,
+        CHUNK_OVERLAP_LINES.get(),
         ChunkEnrichment::PATH,
         "",
     )
@@ -861,7 +864,7 @@ pub fn xberg_chunks_with(
     let overlap_chars = lines_per_chunk
         .saturating_mul(8)
         .saturating_mul(overlap_lines)
-        .saturating_div(CHUNK_OVERLAP_LINES);
+        .saturating_div(CHUNK_OVERLAP_LINES.get());
     let config = xberg::chunking::ChunkingConfig {
         max_characters: lines_per_chunk.saturating_mul(40).max(200),
         overlap: overlap_chars.max(40),
@@ -928,7 +931,7 @@ pub fn symbol_chunks(
         text,
         file_hash,
         lines_per_chunk,
-        CHUNK_OVERLAP_LINES,
+        CHUNK_OVERLAP_LINES.get(),
         ChunkEnrichment::PATH,
         "",
     )
@@ -1157,7 +1160,7 @@ fn table_name_for(cfg: &Config, embedder: &str) -> String {
         FTS_TOKENIZER_LABEL,
         // The document corpus is a different input set, and the converter
         // version changes its text — both re-embed rather than mix.
-        if cfg.retrieval_documents {
+        if cfg.retrieval_documents.is_on() {
             "docs"
         } else {
             "src"
@@ -1194,7 +1197,7 @@ fn table_name_for(cfg: &Config, embedder: &str) -> String {
     format!("{}_{}", &name[..119], &digest[..8])
 }
 
-fn exclude_identity_fragment(raw: &[String]) -> String {
+fn exclude_identity_fragment(raw: &[impl AsRef<str>]) -> String {
     let normalized = normalized_includes(raw);
     if normalized.is_empty() {
         return String::new();
@@ -1352,7 +1355,7 @@ pub async fn retrieval_index_status(cfg: &Config) -> RetrievalIndexStatus {
     };
     RetrievalIndexStatus {
         table,
-        cache_dir: cfg.retrieval_cache_dir.clone(),
+        cache_dir: cfg.retrieval_cache_dir.clone().into_path_buf(),
         manifest_path: manifest_path(cfg),
         manifest_files: manifest.len(),
         rows,
@@ -2145,11 +2148,11 @@ pub fn module_hint(path: &str) -> String {
 
 /// Identity fragment for a non-default chunk overlap (empty at the shipped
 /// [`CHUNK_OVERLAP_LINES`], so existing tables/manifests keep their names).
-fn overlap_identity_fragment(overlap_lines: usize) -> String {
+fn overlap_identity_fragment(overlap_lines: crate::types::ChunkOverlap) -> String {
     if overlap_lines == CHUNK_OVERLAP_LINES {
         String::new()
     } else {
-        format!("_ov{overlap_lines}")
+        format!("_ov{}", overlap_lines.get())
     }
 }
 
@@ -2186,7 +2189,7 @@ fn chunks_to_batch(chunks: &[LocalChunk]) -> Result<arrow_array::RecordBatch, St
     // The width comes from the vectors themselves: the embedder's guard already
     // rejected a mismatched response, so every chunk carries the configured
     // width. Empty input cannot reach here (one file always has one chunk).
-    let dim = chunks.first().map_or(DENSE_DIM, |c| c.vector.len());
+    let dim = chunks.first().map_or(DENSE_DIM.get(), |c| c.vector.len());
     if chunks
         .iter()
         .any(|c| c.vector.len() != dim || c.vector.len() % dim != 0)
@@ -2401,15 +2404,23 @@ pub fn excluded_by(cfg: &Config, path: &Path) -> bool {
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/");
-    let depth = |entry: &String| -> Option<usize> {
+    let depth = |entry: &str| -> Option<usize> {
         let entry = entry.trim().trim_start_matches("./").trim_end_matches('/');
         if entry.is_empty() {
             return None;
         }
         (rel == entry || rel.starts_with(&format!("{entry}/"))).then_some(entry.len())
     };
-    let exclude = cfg.retrieval_exclude.iter().filter_map(depth).max();
-    let include = cfg.retrieval_include.iter().filter_map(depth).max();
+    let exclude = cfg
+        .retrieval_exclude
+        .iter()
+        .filter_map(|entry| depth(entry.as_str()))
+        .max();
+    let include = cfg
+        .retrieval_include
+        .iter()
+        .filter_map(|entry| depth(entry.as_str()))
+        .max();
     matches!((exclude, include), (Some(ex), Some(inc)) if ex >= inc)
         || matches!((exclude, include), (Some(_), None))
 }
@@ -2474,7 +2485,7 @@ impl LocalCodeIndex {
         let mut files = discover_source_files(&cfg.workspace_root);
         // Opt-in document corpus: converted to Markdown with anydoc and chunked
         // by the SAME configured chunker as sources (see chunks_for_entry).
-        let document_files = if cfg.retrieval_documents {
+        let document_files = if cfg.retrieval_documents.is_on() {
             discover_document_files(&cfg.workspace_root)
         } else {
             Vec::new()
@@ -2534,7 +2545,7 @@ impl LocalCodeIndex {
         // Fail once, clearly, before paying for a corpus walk and a partial
         // embed: a missing device, cache or model id is the common
         // misconfiguration.
-        if let Err(e) = models.preflight(cfg.retrieval_rerank_enabled).await {
+        if let Err(e) = models.preflight(cfg.retrieval_rerank_enabled.is_on()).await {
             eprintln!("  (retrieval: fastembed backend unavailable — {e})");
             return None;
         }
@@ -2618,7 +2629,7 @@ impl LocalCodeIndex {
         let table = match db.open_table(&name).execute().await {
             Ok(table) => table,
             Err(_) => match db
-                .create_empty_table(&name, Arc::new(code_schema(cfg.retrieval_embed_dim)))
+                .create_empty_table(&name, Arc::new(code_schema(cfg.retrieval_embed_dim.get())))
                 .execute()
                 .await
             {
@@ -2875,20 +2886,23 @@ impl LocalCodeIndex {
             table,
             by_id,
             models,
-            rerank_enabled: cfg.retrieval_rerank_enabled,
-            rerank_context: cfg.retrieval_rerank_context,
-            fusion_gate: cfg.retrieval_fusion_gate,
-            query_log: cfg.retrieval_query_log.clone(),
+            rerank_enabled: cfg.retrieval_rerank_enabled.is_on(),
+            rerank_context: cfg.retrieval_rerank_context.is_on(),
+            fusion_gate: cfg.retrieval_fusion_gate.is_on(),
+            query_log: cfg
+                .retrieval_query_log
+                .clone()
+                .map(crate::types::QueryLogPath::into_path_buf),
             vector_index: cfg.retrieval_vector_index,
-            stage_candidates: cfg.retrieval_stage_candidates,
-            rerank_candidates: cfg.retrieval_rerank_candidates,
+            stage_candidates: cfg.retrieval_stage_candidates.get(),
+            rerank_candidates: cfg.retrieval_rerank_candidates.get(),
             fusion: cfg.retrieval_fusion,
             rerank_score_norm: cfg.retrieval_rerank_score,
-            rerank_blend: cfg.retrieval_rerank_blend.clamp(0.0, 1.0),
-            query_expansion: cfg.retrieval_query_expansion,
-            query_routing: cfg.retrieval_query_routing,
+            rerank_blend: cfg.retrieval_rerank_blend.get().clamp(0.0, 1.0),
+            query_expansion: cfg.retrieval_query_expansion.is_on(),
+            query_routing: cfg.retrieval_query_routing.is_on(),
             secondary: None,
-            dual_route: cfg.retrieval_dual_route,
+            dual_route: cfg.retrieval_dual_route.is_on(),
         }))
     }
 
@@ -3878,7 +3892,7 @@ mod tests {
         assert_eq!(RERANKER_MODEL_LABEL, DEFAULT_RERANK_MODEL);
         // The stored table must be 1024-dim for the pinned embedder.
         assert_eq!(DENSE_DIM, 1024);
-        assert!(DENSE_DIM > 0 && DENSE_DIM.is_multiple_of(8));
+        assert!(DENSE_DIM > 0 && DENSE_DIM.get().is_multiple_of(8));
     }
 
     #[test]
@@ -4047,7 +4061,7 @@ mod tests {
         let t1 = table_name(&base);
 
         let mut other_ws = base.clone();
-        other_ws.workspace_root = PathBuf::from("/ws/other");
+        other_ws.workspace_root = PathBuf::from("/ws/other").into();
         assert_ne!(t1, table_name(&other_ws), "different workspaces");
 
         let mut other_lines = base.clone();
@@ -4060,7 +4074,7 @@ mod tests {
 
         // Opting the document corpus in changes the indexed input set.
         let mut with_docs = base.clone();
-        with_docs.retrieval_documents = true;
+        with_docs.retrieval_documents = crate::types::Documents::on();
         assert_ne!(t1, table_name(&with_docs), "different corpus inputs");
 
         // Explicit includes are more indexed input: a different set is a
@@ -4225,7 +4239,7 @@ mod tests {
         assert_eq!(manifest_path(&ann), manifest);
 
         let mut wide = base.clone();
-        wide.retrieval_rerank_max_tokens = 2048;
+        wide.retrieval_rerank_max_tokens = crate::types::TokenLimit::new(2048);
         assert_eq!(
             table_name(&wide),
             table,
@@ -4359,7 +4373,7 @@ mod tests {
         let (main, feat) = worktree_fixture(dir.path());
         let at = |ws: &Path| {
             let mut c = Config::test_default();
-            c.workspace_root = ws.to_path_buf();
+            c.workspace_root = ws.to_path_buf().into();
             c
         };
         let main_cfg = at(&main);
@@ -4406,12 +4420,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (main, feat) = worktree_fixture(dir.path());
         let mut feat_cfg = Config::test_default();
-        feat_cfg.workspace_root = feat;
-        feat_cfg.retrieval_cache_dir = dir.path().join("shared-retrieval");
+        feat_cfg.workspace_root = feat.into();
+        feat_cfg.retrieval_cache_dir = dir.path().join("shared-retrieval").into();
         std::fs::create_dir_all(&feat_cfg.retrieval_cache_dir).unwrap();
         // A manifest that is the *same file* for both checkouts.
         let mut main_cfg = feat_cfg.clone();
-        main_cfg.workspace_root = main;
+        main_cfg.workspace_root = main.into();
         assert_eq!(manifest_path(&feat_cfg), manifest_path(&main_cfg));
 
         std::fs::write(manifest_path(&feat_cfg), "{ this is not json").unwrap();
@@ -4457,7 +4471,7 @@ mod tests {
 
     #[test]
     fn schema_carries_the_crate_scope_column() {
-        let schema = code_schema(DENSE_DIM);
+        let schema = code_schema(DENSE_DIM.get());
         let field = schema
             .field_with_name("crate_name")
             .expect("crate_name column");
@@ -4471,7 +4485,7 @@ mod tests {
             .into_iter()
             .next()
             .unwrap();
-        chunk.vector = vec![0.1; DENSE_DIM];
+        chunk.vector = vec![0.1; DENSE_DIM.get()].into();
         chunk.crate_name = "mentions".to_string();
         let batch = chunks_to_batch(&[chunk]).expect("batch must build");
         assert_eq!(batch.num_rows(), 1);
@@ -4582,11 +4596,11 @@ mod tests {
         // The identity fragment is exactly that set's hash: absent for the empty
         // set (so the incumbent names survive untouched), order-insensitive and
         // duplicate-insensitive otherwise.
-        assert_eq!(include_identity_fragment(&[]), "");
-        let a = include_identity_fragment(&["docs/a".into(), "docs/b".into()]);
-        let b = include_identity_fragment(&["docs/b".into(), "docs/a".into(), "docs/a".into()]);
+        assert_eq!(include_identity_fragment(&[] as &[&str]), "");
+        let a = include_identity_fragment(&["docs/a", "docs/b"]);
+        let b = include_identity_fragment(&["docs/b", "docs/a", "docs/a"]);
         assert_eq!(a, b, "the same set is one identity");
-        assert_ne!(a, include_identity_fragment(&["docs/a".into()]));
+        assert_ne!(a, include_identity_fragment(&["docs/a"]));
     }
 
     #[test]
@@ -4601,7 +4615,7 @@ mod tests {
         assert_eq!(ok, [ws.join("docs/guides").canonicalize().unwrap()]);
 
         // Nothing named at all is an error naming the flag.
-        let err = validate_includes(&ws, &[]).unwrap_err();
+        let err = validate_includes(&ws, &[] as &[&str]).unwrap_err();
         assert!(err.contains("--include"), "{err}");
 
         // A typo fails loudly rather than building a table that lacks it.
@@ -4923,7 +4937,7 @@ mod exclude_tests {
     #[test]
     fn deepest_include_or_exclude_wins() {
         let mut cfg = Config::test_default();
-        cfg.workspace_root = PathBuf::from("/ws");
+        cfg.workspace_root = PathBuf::from("/ws").into();
         cfg.retrieval_exclude = vec!["vendor".into()];
         assert!(excluded_by(&cfg, &PathBuf::from("/ws/vendor/a.rs")));
         cfg.retrieval_include = vec!["vendor/keep".into()];

@@ -3,7 +3,7 @@
 //! [`Operator`] loads a workspace configuration, owns an optional local index,
 //! and exposes the same read-only operations the MCP server publishes. The
 //! binary keeps the CLI/TUI; library callers do not parse process arguments.
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -247,8 +247,9 @@ fn clamp_limit(limit: usize) -> usize {
     limit.clamp(1, 1000)
 }
 
-fn canonical_workspace(workspace: &Path) -> Result<PathBuf> {
+fn canonical_workspace(workspace: &Path) -> Result<crate::types::WorkspaceRoot> {
     std::fs::canonicalize(workspace)
+        .map(crate::types::WorkspaceRoot::from)
         .map_err(|error| Error::Config(format!("workspace {}: {error}", workspace.display())))
 }
 

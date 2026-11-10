@@ -49,7 +49,8 @@ pub fn validate(cfg: &crate::config::Config) -> Result<()> {
     for path in cfg
         .retrieval_include
         .iter()
-        .chain(cfg.retrieval_exclude.iter())
+        .map(|path| path.as_str())
+        .chain(cfg.retrieval_exclude.iter().map(|path| path.as_str()))
     {
         let canonical = std::fs::canonicalize(root.join(path))
             .map_err(|e| Error::Config(format!("path {path}: {e}")))?;

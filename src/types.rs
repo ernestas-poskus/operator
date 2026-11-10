@@ -1065,6 +1065,10 @@ string_newtype!(
     ModelName
 );
 string_newtype!(
+    #[doc = "A model loader backend label (`bert`, `qwen3`), kept raw for forward compatibility."]
+    BackendLabel
+);
+string_newtype!(
     #[doc = "Retrieval table name."]
     TableName
 );

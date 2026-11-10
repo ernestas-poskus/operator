@@ -2,7 +2,12 @@
 use std::path::{Path, PathBuf};
 
 use crate::chunk_context::ChunkEnrichment;
-use crate::types::LanguageId;
+use crate::types::{
+    Blend, CacheDir, CandidateCount, ChunkLines, ChunkOverlap, Documents, DualRoute, EmbedDim,
+    ExcludePath, FusionGate, IncludePath, Instruction, LanguageId, ModelCacheDir, ModelName,
+    QueryExpansion, QueryLogPath, QueryPrefix, QueryRouting, RerankContext, RerankEnabled,
+    TokenLimit, Weight, WorkspaceRoot,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RetrievalVectorIndex {
@@ -88,77 +93,78 @@ impl EmbedBackend {
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub workspace_root: PathBuf,
+    pub workspace_root: WorkspaceRoot,
     /// Canonical ast-grep language ids selected at init.
     pub languages: Vec<LanguageId>,
-    pub retrieval_cache_dir: PathBuf,
-    pub retrieval_chunk_lines: usize,
+    pub retrieval_cache_dir: CacheDir,
+    pub retrieval_chunk_lines: ChunkLines,
     /// Lines repeated between consecutive sliding windows (default
     /// `CHUNK_OVERLAP_LINES`).
-    pub retrieval_chunk_overlap: usize,
-    pub retrieval_include: Vec<String>,
-    pub retrieval_exclude: Vec<String>,
-    pub retrieval_documents: bool,
-    pub retrieval_dense_weight: f32,
+    pub retrieval_chunk_overlap: ChunkOverlap,
+    pub retrieval_include: Vec<IncludePath>,
+    pub retrieval_exclude: Vec<ExcludePath>,
+    pub retrieval_documents: Documents,
+    pub retrieval_dense_weight: Weight,
     pub retrieval_fusion: crate::code_search::Fusion,
     pub retrieval_rerank_score: crate::code_search::RerankScoreNorm,
     pub retrieval_enrichment: ChunkEnrichment,
     pub retrieval_chunker: crate::code_search::ChunkerMode,
     pub retrieval_vector_index: RetrievalVectorIndex,
-    pub retrieval_rerank_max_tokens: usize,
-    pub retrieval_stage_candidates: usize,
-    pub retrieval_rerank_candidates: usize,
+    pub retrieval_rerank_max_tokens: TokenLimit,
+    pub retrieval_stage_candidates: CandidateCount,
+    pub retrieval_rerank_candidates: CandidateCount,
     /// Where the HF snapshots live; `None` = discover an existing cache, else
     /// `<retrieval_cache_dir>/models`.
-    pub retrieval_model_cache_dir: Option<PathBuf>,
+    pub retrieval_model_cache_dir: Option<ModelCacheDir>,
     pub retrieval_model_dtype: ModelDtype,
-    pub retrieval_embed_model: String,
-    pub retrieval_embed_dim: usize,
+    pub retrieval_embed_model: ModelName,
+    pub retrieval_embed_dim: EmbedDim,
     pub retrieval_embed_backend: EmbedBackend,
-    pub retrieval_embed_query_prefix: String,
-    pub retrieval_rerank_model: String,
-    pub retrieval_rerank_instruction: Option<String>,
-    pub retrieval_rerank_enabled: bool,
+    pub retrieval_embed_query_prefix: QueryPrefix,
+    pub retrieval_rerank_model: ModelName,
+    pub retrieval_rerank_instruction: Option<Instruction>,
+    pub retrieval_rerank_enabled: RerankEnabled,
     /// Prefix the cross-encoder's documents with a derived `Module:` hint
     /// (the stored text already carries the `File:` enrichment prefix).
-    pub retrieval_rerank_context: bool,
+    pub retrieval_rerank_context: RerankContext,
     /// Use RRF when the lexical stage contributes candidates the dense stage
     /// did not return (the error-analysis gate), weighted otherwise.
-    pub retrieval_fusion_gate: bool,
+    pub retrieval_fusion_gate: FusionGate,
     /// Optional local JSONL log of search queries for future real-traffic
     /// evaluation. Off by default; writes query text + returned paths only.
-    pub retrieval_query_log: Option<PathBuf>,
+    pub retrieval_query_log: Option<QueryLogPath>,
     /// Optional secondary embedder; when set, symbol-shaped queries search the
     /// secondary index (its own table + model) instead of the primary one.
-    pub retrieval_dual_embed_model: Option<String>,
-    pub retrieval_dual_embed_dim: Option<usize>,
+    pub retrieval_dual_embed_model: Option<ModelName>,
+    pub retrieval_dual_embed_dim: Option<EmbedDim>,
     pub retrieval_dual_embed_backend: Option<EmbedBackend>,
-    pub retrieval_dual_embed_query_prefix: Option<String>,
+    pub retrieval_dual_embed_query_prefix: Option<QueryPrefix>,
     /// Whether symbol-shaped queries are routed to the secondary index.
-    pub retrieval_dual_route: bool,
+    pub retrieval_dual_route: DualRoute,
     /// Blend the cross-encoder score with the fused retrieval score
     /// (`blend * rerank + (1 - blend) * fused`, both min-max normalized).
     /// `0.0` is the pure-reranker order.
-    pub retrieval_rerank_blend: f32,
+    pub retrieval_rerank_blend: Blend,
     /// Expand the dense query with the code-aware identifier tokens before
     /// embedding (query-time only).
-    pub retrieval_query_expansion: bool,
+    pub retrieval_query_expansion: QueryExpansion,
     /// Route symbol-shaped queries to reciprocal-rank fusion (query-time only).
-    pub retrieval_query_routing: bool,
+    pub retrieval_query_routing: QueryRouting,
 }
 
 impl Config {
-    pub fn new(workspace_root: PathBuf) -> Self {
+    pub fn new(workspace_root: impl Into<WorkspaceRoot>) -> Self {
+        let workspace_root = workspace_root.into();
         Self {
-            retrieval_cache_dir: workspace_root.join(".cache/retrieval"),
+            retrieval_cache_dir: CacheDir::from(workspace_root.join(".cache/retrieval")),
             workspace_root,
             languages: Vec::new(),
-            retrieval_chunk_lines: 50,
+            retrieval_chunk_lines: ChunkLines::new(50),
             retrieval_chunk_overlap: crate::code_search::CHUNK_OVERLAP_LINES,
             retrieval_include: Vec::new(),
             retrieval_exclude: Vec::new(),
-            retrieval_documents: false,
-            retrieval_dense_weight: 2.0,
+            retrieval_documents: Documents::off(),
+            retrieval_dense_weight: Weight::new(2.0),
             // RRF is the shipped fusion; it is robust across query shapes.
             retrieval_fusion: crate::code_search::Fusion::Rrf,
             retrieval_rerank_score: crate::code_search::RerankScoreNorm::Clamp,
@@ -170,26 +176,26 @@ impl Config {
             retrieval_rerank_candidates: crate::code_search::RERANK_CANDIDATES,
             retrieval_model_cache_dir: None,
             retrieval_model_dtype: ModelDtype::F16,
-            retrieval_embed_model: crate::code_search::DEFAULT_EMBED_MODEL.to_string(),
+            retrieval_embed_model: ModelName::from(crate::code_search::DEFAULT_EMBED_MODEL),
             retrieval_embed_dim: crate::code_search::DENSE_DIM,
             retrieval_embed_backend: EmbedBackend::Bert,
-            retrieval_embed_query_prefix: String::new(),
-            retrieval_rerank_model: crate::code_search::DEFAULT_RERANK_MODEL.to_string(),
-            retrieval_rerank_instruction: Some(
-                crate::code_search::DEFAULT_RERANK_INSTRUCTION.to_string(),
-            ),
-            retrieval_rerank_enabled: true,
-            retrieval_rerank_context: false,
-            retrieval_fusion_gate: false,
+            retrieval_embed_query_prefix: QueryPrefix::default(),
+            retrieval_rerank_model: ModelName::from(crate::code_search::DEFAULT_RERANK_MODEL),
+            retrieval_rerank_instruction: Some(Instruction::from(
+                crate::code_search::DEFAULT_RERANK_INSTRUCTION,
+            )),
+            retrieval_rerank_enabled: RerankEnabled::on(),
+            retrieval_rerank_context: RerankContext::off(),
+            retrieval_fusion_gate: FusionGate::off(),
             retrieval_query_log: None,
             retrieval_dual_embed_model: None,
             retrieval_dual_embed_dim: None,
             retrieval_dual_embed_backend: None,
             retrieval_dual_embed_query_prefix: None,
-            retrieval_dual_route: true,
-            retrieval_rerank_blend: 0.0,
-            retrieval_query_expansion: false,
-            retrieval_query_routing: false,
+            retrieval_dual_route: DualRoute::on(),
+            retrieval_rerank_blend: Blend::new(0.0),
+            retrieval_query_expansion: QueryExpansion::off(),
+            retrieval_query_routing: QueryRouting::off(),
         }
     }
 
@@ -287,7 +293,7 @@ mod shipped_retrieval_defaults {
         assert_eq!(cfg.retrieval_model_dtype, ModelDtype::F16);
         assert_eq!(cfg.retrieval_rerank_model, "Qwen/Qwen3-Reranker-0.6B");
         assert_eq!(cfg.retrieval_rerank_max_tokens, 512);
-        assert!(cfg.retrieval_rerank_enabled);
+        assert!(cfg.retrieval_rerank_enabled.is_on());
         assert_eq!(
             cfg.retrieval_rerank_instruction.as_deref(),
             Some("Given a code search query, retrieve relevant code")
@@ -296,20 +302,20 @@ mod shipped_retrieval_defaults {
 
         // Experimental knobs all default off.
         assert_eq!(cfg.retrieval_rerank_blend, 0.0);
-        assert!(!cfg.retrieval_rerank_context);
-        assert!(!cfg.retrieval_fusion_gate);
-        assert!(!cfg.retrieval_query_expansion);
-        assert!(!cfg.retrieval_query_routing);
+        assert!(!cfg.retrieval_rerank_context.is_on());
+        assert!(!cfg.retrieval_fusion_gate.is_on());
+        assert!(!cfg.retrieval_query_expansion.is_on());
+        assert!(!cfg.retrieval_query_routing.is_on());
         assert_eq!(cfg.retrieval_query_log, None);
         // Dual routing is available but requires an explicit secondary model.
         assert_eq!(cfg.retrieval_dual_embed_model, None);
         assert_eq!(cfg.retrieval_dual_embed_dim, None);
         assert_eq!(cfg.retrieval_dual_embed_backend, None);
-        assert!(cfg.retrieval_dual_route);
+        assert!(cfg.retrieval_dual_route.is_on());
         assert_eq!(
             cfg.retrieval_rerank_score,
             crate::code_search::RerankScoreNorm::Clamp
         );
-        assert!(!cfg.retrieval_documents);
+        assert!(!cfg.retrieval_documents.is_on());
     }
 }

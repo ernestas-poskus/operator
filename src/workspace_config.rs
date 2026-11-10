@@ -3,42 +3,46 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::LanguageId;
+use crate::types::{
+    BackendLabel, Blend, CacheDir, ChunkLines, ChunkOverlap, DualRoute, EmbedDim, ExcludePath,
+    FusionGate, IncludePath, LanguageId, ModelCacheDir, ModelName, QueryExpansion, QueryLogPath,
+    QueryPrefix, QueryRouting, RerankContext, RerankEnabled, SchemaVersion,
+};
 
 pub const CONFIG_FILE: &str = ".operator.toml";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspaceConfig {
-    pub schema_version: Option<u32>,
+    pub schema_version: Option<SchemaVersion>,
     pub languages: Option<Vec<LanguageId>>,
-    pub retrieval_include: Option<Vec<String>>,
-    pub retrieval_exclude: Option<Vec<String>>,
-    pub retrieval_cache_dir: Option<PathBuf>,
-    pub retrieval_model_cache_dir: Option<PathBuf>,
+    pub retrieval_include: Option<Vec<IncludePath>>,
+    pub retrieval_exclude: Option<Vec<ExcludePath>>,
+    pub retrieval_cache_dir: Option<CacheDir>,
+    pub retrieval_model_cache_dir: Option<ModelCacheDir>,
     pub retrieval_model_dtype: Option<crate::config::ModelDtype>,
-    pub retrieval_embed_model: Option<String>,
+    pub retrieval_embed_model: Option<ModelName>,
     /// Backend loader for the embedder repo (`bert` | `qwen3`).
     #[serde(default)]
-    pub retrieval_embed_backend: Option<String>,
+    pub retrieval_embed_backend: Option<BackendLabel>,
     /// Embedder output width when the model is not 1024-d.
     #[serde(default)]
-    pub retrieval_embed_dim: Option<usize>,
-    pub retrieval_rerank_model: Option<String>,
-    pub retrieval_rerank_enabled: Option<bool>,
-    pub retrieval_rerank_context: Option<bool>,
-    pub retrieval_fusion_gate: Option<bool>,
-    pub retrieval_query_log: Option<String>,
-    pub retrieval_dual_embed_model: Option<String>,
-    pub retrieval_dual_embed_dim: Option<usize>,
-    pub retrieval_dual_embed_backend: Option<String>,
-    pub retrieval_dual_embed_query_prefix: Option<String>,
-    pub retrieval_dual_route: Option<bool>,
-    pub retrieval_rerank_blend: Option<f32>,
-    pub retrieval_query_expansion: Option<bool>,
-    pub retrieval_query_routing: Option<bool>,
-    pub retrieval_chunk_lines: Option<usize>,
-    pub retrieval_chunk_overlap: Option<usize>,
+    pub retrieval_embed_dim: Option<EmbedDim>,
+    pub retrieval_rerank_model: Option<ModelName>,
+    pub retrieval_rerank_enabled: Option<RerankEnabled>,
+    pub retrieval_rerank_context: Option<RerankContext>,
+    pub retrieval_fusion_gate: Option<FusionGate>,
+    pub retrieval_query_log: Option<QueryLogPath>,
+    pub retrieval_dual_embed_model: Option<ModelName>,
+    pub retrieval_dual_embed_dim: Option<EmbedDim>,
+    pub retrieval_dual_embed_backend: Option<BackendLabel>,
+    pub retrieval_dual_embed_query_prefix: Option<QueryPrefix>,
+    pub retrieval_dual_route: Option<DualRoute>,
+    pub retrieval_rerank_blend: Option<Blend>,
+    pub retrieval_query_expansion: Option<QueryExpansion>,
+    pub retrieval_query_routing: Option<QueryRouting>,
+    pub retrieval_chunk_lines: Option<ChunkLines>,
+    pub retrieval_chunk_overlap: Option<ChunkOverlap>,
 }
 
 impl WorkspaceConfig {
@@ -79,14 +83,14 @@ impl WorkspaceConfig {
             cfg.retrieval_cache_dir = if cache.is_absolute() {
                 cache
             } else {
-                workspace.join(cache)
+                CacheDir::from(workspace.join(&cache))
             };
         }
         if let Some(dir) = self.retrieval_model_cache_dir {
             cfg.retrieval_model_cache_dir = Some(if dir.is_absolute() {
                 dir
             } else {
-                workspace.join(dir)
+                ModelCacheDir::from(workspace.join(&dir))
             });
         }
         if let Some(dtype) = self.retrieval_model_dtype {
@@ -119,17 +123,15 @@ impl WorkspaceConfig {
         }
         if let Some(path) = self
             .retrieval_query_log
-            .as_deref()
-            .filter(|p| !p.trim().is_empty())
+            .filter(|p| !p.as_path().to_string_lossy().trim().is_empty())
         {
-            cfg.retrieval_query_log = Some(std::path::PathBuf::from(path));
+            cfg.retrieval_query_log = Some(path);
         }
         if let Some(model) = self
             .retrieval_dual_embed_model
-            .as_deref()
             .filter(|m| !m.trim().is_empty())
         {
-            cfg.retrieval_dual_embed_model = Some(model.to_string());
+            cfg.retrieval_dual_embed_model = Some(model);
         }
         if let Some(dim) = self.retrieval_dual_embed_dim {
             cfg.retrieval_dual_embed_dim = Some(dim);
@@ -141,14 +143,14 @@ impl WorkspaceConfig {
         {
             cfg.retrieval_dual_embed_backend = Some(backend);
         }
-        if let Some(prefix) = self.retrieval_dual_embed_query_prefix.as_deref() {
-            cfg.retrieval_dual_embed_query_prefix = Some(prefix.to_string());
+        if let Some(prefix) = self.retrieval_dual_embed_query_prefix {
+            cfg.retrieval_dual_embed_query_prefix = Some(prefix);
         }
         if let Some(route) = self.retrieval_dual_route {
             cfg.retrieval_dual_route = route;
         }
         if let Some(blend) = self.retrieval_rerank_blend {
-            cfg.retrieval_rerank_blend = blend.clamp(0.0, 1.0);
+            cfg.retrieval_rerank_blend = blend.clamp_to(0.0, 1.0);
         }
         if let Some(expand) = self.retrieval_query_expansion {
             cfg.retrieval_query_expansion = expand;
@@ -170,6 +172,7 @@ impl WorkspaceConfig {
 mod tests {
     use super::WorkspaceConfig;
     use crate::config::ModelDtype;
+    use crate::types::EmbedDim;
     use std::path::Path;
 
     #[test]
@@ -224,7 +227,7 @@ retrieval_dual_route = false
             cfg.retrieval_dual_embed_model.as_deref(),
             Some("Qwen/Qwen3-Embedding-0.6B")
         );
-        assert_eq!(cfg.retrieval_dual_embed_dim, Some(1024));
+        assert_eq!(cfg.retrieval_dual_embed_dim.map(EmbedDim::get), Some(1024));
         assert_eq!(
             cfg.retrieval_dual_embed_backend,
             Some(crate::config::EmbedBackend::Qwen3)
@@ -233,7 +236,7 @@ retrieval_dual_route = false
             cfg.retrieval_dual_embed_query_prefix.as_deref(),
             Some("query: ")
         );
-        assert!(!cfg.retrieval_dual_route);
+        assert!(!cfg.retrieval_dual_route.is_on());
     }
 
     #[test]

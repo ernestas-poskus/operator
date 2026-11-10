@@ -75,7 +75,7 @@ pub fn validate(cfg: &Config) -> Result<(), String> {
 
 /// The dense-vector-space identity baked into the LanceDB table and manifest.
 pub fn embedder_identity(cfg: &Config) -> String {
-    let repo = embed_repo(cfg).unwrap_or_else(|_| cfg.retrieval_embed_model.clone());
+    let repo = embed_repo(cfg).unwrap_or_else(|_| cfg.retrieval_embed_model.clone().into_inner());
     // The repo is hashed rather than spelled out: a LanceDB table name is
     // capped at 128 chars and the full HF repo id does not fit next to the
     // logic/chunker/language fragments.
@@ -100,7 +100,7 @@ pub fn embedder_identity(cfg: &Config) -> String {
 /// short, hashed form from [`embedder_identity`]).
 #[allow(dead_code)]
 pub fn embedder_label(cfg: &Config) -> String {
-    let repo = embed_repo(cfg).unwrap_or_else(|_| cfg.retrieval_embed_model.clone());
+    let repo = embed_repo(cfg).unwrap_or_else(|_| cfg.retrieval_embed_model.clone().into_inner());
     let impl_tag = match cfg.retrieval_embed_backend {
         crate::config::EmbedBackend::Bert => FASTEMBED_EMBEDDER_IMPL,
         crate::config::EmbedBackend::Qwen3 => QWEN3_EMBEDDER_IMPL,
@@ -111,8 +111,9 @@ pub fn embedder_label(cfg: &Config) -> String {
 /// Resolve the model cache root for this configuration and pin it for the
 /// process. Called before the index build.
 pub fn prepare_cache(cfg: &Config) -> PathBuf {
-    let embed = embed_repo(cfg).unwrap_or_else(|_| cfg.retrieval_embed_model.clone());
-    let rerank = rerank_repo(cfg).unwrap_or_else(|_| cfg.retrieval_rerank_model.clone());
+    let embed = embed_repo(cfg).unwrap_or_else(|_| cfg.retrieval_embed_model.clone().into_inner());
+    let rerank =
+        rerank_repo(cfg).unwrap_or_else(|_| cfg.retrieval_rerank_model.clone().into_inner());
     crate::model_cache::resolve_and_pin(cfg, &[embed, rerank])
 }
 
@@ -179,17 +180,18 @@ impl FastembedModels {
                 embed_repo,
                 rerank_repo,
                 embed_max_length: crate::code_search::EMBEDDER_MAX_TOKENS,
-                rerank_max_length: cfg.retrieval_rerank_max_tokens.max(1),
+                rerank_max_length: cfg.retrieval_rerank_max_tokens.max(1).get(),
                 embed_backend: cfg.retrieval_embed_backend,
-                query_prefix: cfg.retrieval_embed_query_prefix.clone(),
+                query_prefix: cfg.retrieval_embed_query_prefix.clone().into_inner(),
                 rerank_instruction: cfg
                     .retrieval_rerank_instruction
                     .clone()
+                    .map(crate::types::Instruction::into_inner)
                     .filter(|s| !s.trim().is_empty()),
                 rerank_char_budget: crate::code_search::chunk_char_budget(
-                    cfg.retrieval_rerank_max_tokens,
+                    cfg.retrieval_rerank_max_tokens.get(),
                 ),
-                embed_dim: cfg.retrieval_embed_dim,
+                embed_dim: cfg.retrieval_embed_dim.get(),
                 loaded: Mutex::new(Loaded::default()),
             }),
         })
@@ -411,8 +413,8 @@ mod tests {
     #[test]
     fn legacy_ids_map_to_hf_repos_and_org_name_ids_pass_through() {
         let mut cfg = Config::test_default();
-        cfg.retrieval_embed_model = "mxbai-embed-large-v1".to_string();
-        cfg.retrieval_rerank_model = "Qwen3-Reranker-0.6B".to_string();
+        cfg.retrieval_embed_model = "mxbai-embed-large-v1".into();
+        cfg.retrieval_rerank_model = "Qwen3-Reranker-0.6B".into();
         assert_eq!(
             embed_repo(&cfg).unwrap(),
             crate::code_search::DEFAULT_EMBED_MODEL
@@ -431,7 +433,7 @@ mod tests {
     #[test]
     fn identity_names_backend_repo_and_impl_and_is_path_safe() {
         let mut cfg = Config::test_default();
-        cfg.retrieval_embed_model = "mxbai-embed-large-v1".to_string();
+        cfg.retrieval_embed_model = "mxbai-embed-large-v1".into();
         let id = embedder_identity(&cfg);
         assert_eq!(id, "fastembed-ab98510c-candle-bert-1");
         assert!(id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));

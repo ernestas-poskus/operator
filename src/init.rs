@@ -8,7 +8,7 @@ use crate::cli::InitArgs;
 use crate::error::{Error, Result};
 use crate::languages;
 use crate::mcp_register;
-use crate::types::LanguageId;
+use crate::types::{ExcludePath, IncludePath, LanguageId, SchemaVersion};
 use crate::workspace_config::WorkspaceConfig;
 
 pub async fn run(args: InitArgs) -> Result<()> {
@@ -70,8 +70,12 @@ pub async fn run(args: InitArgs) -> Result<()> {
         &workspace,
         include_paths.iter().chain(exclude_paths.iter()).flatten(),
     )?;
+    let include_paths: Option<Vec<IncludePath>> =
+        include_paths.map(|paths| paths.into_iter().map(IncludePath::from).collect());
+    let exclude_paths: Option<Vec<ExcludePath>> =
+        exclude_paths.map(|paths| paths.into_iter().map(ExcludePath::from).collect());
     let config = WorkspaceConfig {
-        schema_version: Some(3),
+        schema_version: Some(SchemaVersion::new(3)),
         languages: Some(selected.clone()),
         retrieval_include: include_paths.clone(),
         retrieval_exclude: exclude_paths.clone(),
@@ -100,7 +104,7 @@ pub async fn run(args: InitArgs) -> Result<()> {
     if WorkspaceConfig::path_for(&workspace).exists() && !args.force {
         let existing = WorkspaceConfig::load(&workspace)?.unwrap_or_default();
         let mut merged = existing;
-        merged.schema_version = Some(3);
+        merged.schema_version = Some(SchemaVersion::new(3));
         merged.languages = Some(selected.clone());
         if include_paths.is_some() {
             merged.retrieval_include = include_paths;

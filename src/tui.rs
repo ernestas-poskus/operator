@@ -22,7 +22,7 @@ use crate::code_search::{IndexEvent, RetrievalIndexStatus};
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::languages;
-use crate::types::LanguageId;
+use crate::types::{ExcludePath, IncludePath, LanguageId, SchemaVersion};
 use crate::workspace_config::WorkspaceConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,10 +167,10 @@ impl App {
                 }
             }
             for path in cfg.retrieval_include.unwrap_or_default() {
-                self.explicit.insert(path, Selection::Include);
+                self.explicit.insert(path.to_string(), Selection::Include);
             }
             for path in cfg.retrieval_exclude.unwrap_or_default() {
-                self.explicit.insert(path, Selection::Exclude);
+                self.explicit.insert(path.to_string(), Selection::Exclude);
             }
         }
     }
@@ -187,10 +187,10 @@ impl App {
         includes.sort();
         excludes.sort();
         let mut base = self.base.clone();
-        base.schema_version = Some(3);
+        base.schema_version = Some(SchemaVersion::new(3));
         base.languages = Some(self.selected_languages.iter().cloned().collect());
-        base.retrieval_include = Some(includes);
-        base.retrieval_exclude = Some(excludes);
+        base.retrieval_include = Some(includes.into_iter().map(IncludePath::from).collect());
+        base.retrieval_exclude = Some(excludes.into_iter().map(ExcludePath::from).collect());
         base
     }
 
@@ -1286,7 +1286,7 @@ mod tests {
             before.saturating_sub(1).max(1)
         );
         let cfg = app.config();
-        assert_eq!(cfg.schema_version, Some(3));
+        assert_eq!(cfg.schema_version, Some(SchemaVersion::new(3)));
         assert!(cfg.languages.is_some());
     }
 

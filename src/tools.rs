@@ -114,7 +114,7 @@ pub async fn search_code(
         "fts" => {
             if let Some(index) = &state.index {
                 let hits = index
-                    .hybrid_search(query, limit, None, state.cfg.retrieval_dense_weight)
+                    .hybrid_search(query, limit, None, state.cfg.retrieval_dense_weight.get())
                     .await
                     .map_err(|e| format!("index search failed: {e}"))?;
                 return Ok(hits
@@ -229,7 +229,7 @@ pub async fn search_semantic(
         .as_ref()
         .ok_or_else(|| "index_missing: run `operator reindex` first".to_string())?;
     let hits = index
-        .hybrid_search(query, limit, None, state.cfg.retrieval_dense_weight)
+        .hybrid_search(query, limit, None, state.cfg.retrieval_dense_weight.get())
         .await
         .map_err(|e| format!("semantic search failed: {e}"))?;
     let mut out: Vec<SemanticHit> = hits

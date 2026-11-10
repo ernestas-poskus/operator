@@ -23,7 +23,7 @@ pub fn candidate_roots(cfg: &Config) -> Vec<PathBuf> {
     };
 
     if let Some(dir) = &cfg.retrieval_model_cache_dir {
-        push(dir.clone());
+        push(dir.clone().into_path_buf());
     }
     if let Some(dir) = std::env::var_os("FASTEMBED_CACHE_DIR") {
         push(PathBuf::from(dir));
@@ -206,7 +206,7 @@ mod tests {
         cfg.retrieval_model_cache_dir = None;
         let roots = super::candidate_roots(&cfg);
         assert_eq!(roots.last(), Some(&cfg.retrieval_cache_dir.join("models")));
-        cfg.retrieval_model_cache_dir = Some(PathBuf::from("/explicit/cache"));
+        cfg.retrieval_model_cache_dir = Some(PathBuf::from("/explicit/cache").into());
         assert_eq!(
             super::candidate_roots(&cfg)[0],
             PathBuf::from("/explicit/cache")

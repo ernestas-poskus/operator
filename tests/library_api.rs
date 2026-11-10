@@ -1,5 +1,5 @@
 //! The in-process library API must work without a GPU, model download, or MCP host.
-use operator::{Config, Error, Operator, WorkspaceConfig, detect_languages};
+use operator::{Config, Error, Operator, SchemaVersion, WorkspaceConfig, detect_languages};
 
 fn fixture() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -33,7 +33,7 @@ fn detect_languages_sees_rust() {
 fn open_unindexed_reads_the_workspace_config() {
     let dir = fixture();
     WorkspaceConfig {
-        schema_version: Some(3),
+        schema_version: Some(SchemaVersion::new(3)),
         languages: Some(vec!["rust".into()]),
         ..Default::default()
     }
