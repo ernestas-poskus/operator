@@ -14,6 +14,29 @@ design decision.
   backward tolerant and never log source contents to the learn journal by
   default.
 
+## Type conventions
+
+- **Newtype pattern.** Every domain primitive gets a newtype in
+  `src/types.rs`: language ids, paths, source text, counts, line numbers,
+  scores, model/table names, timestamps and flags. Do not add bare `String`,
+  `usize`, `u32`, `u64`, `i64`, `f32`, `bool` or `PathBuf` fields to
+  configuration, tool arguments/results, index records, journal records, or
+  the public API. Keep wrappers `#[serde(transparent)]` and
+  `#[schemars(inline)]`, so the TOML/JSONL/MCP wire formats and host schemas
+  stay unchanged; convert explicitly (`new`/`get`/`as_str`) or with
+  `From`/`Into`. `argh` switches, transient TUI state and intra-function loop
+  locals are the only allowed primitives; justify any other exception in the
+  type's doc comment.
+- **Time and dates use `time`.** Represent wall-clock instants and dates with
+  `time::OffsetDateTime`/`time::Date` and durations with `time::Duration`,
+  wrapped in the newtypes above — never `SystemTime`, `UNIX_EPOCH`, or bare
+  epoch integers in the data model. `std::time::Instant` is only for measuring
+  elapsed work. Wire records keep their established units (Unix
+  seconds/millis, RFC 3339); serialize and parse them at the `src/types.rs`
+  boundary, never at call sites, and keep older records readable. The existing
+  integer-backed `UnixSeconds`, `DurationMs` and `UpdatedAt` are the only
+  exception and migrate to `time` when their records next change.
+
 ## Architecture boundaries
 
 - `src/api.rs` is the library facade: [`Operator`] plus the re-exported value
