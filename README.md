@@ -164,10 +164,12 @@ references, diagnostics, rename, or edits; use the host’s compiler/LSP for tho
 
 These are aggregate results from the retrieval evaluation work. The harness and
 query fixtures are intentionally not distributed; no private query text or
-judged source snippets are included here. All quality runs use top-5 documents,
-path-deduped after reranking, on a frozen Rust corpus of 243 files / 4,404
-chunks. Statistics are paired sign tests plus bootstrap 95% confidence intervals
-against the same-run baseline.
+judged source snippets are included here. Ranking and pool results use top-5
+documents, path-deduped after reranking, on a frozen Rust corpus of 243 files /
+4,404 chunks. Candidate-matrix and speed rows use the earlier 5-chunk metric
+where noted; absolute values from the two methods are not directly comparable.
+Statistics are paired sign tests plus bootstrap 95% confidence intervals against
+the same-run baseline.
 
 ### Ranking and fusion
 
