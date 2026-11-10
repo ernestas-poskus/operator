@@ -1,0 +1,24 @@
+/target
+crates/*/target/
+**/*.rs.bk
+/.cargo-home
+/.env
+*.log
+
+/.cache
+/.fastembed_cache
+# `operator serve` runtime marker directory (server state, never committed).
+/.operator/
+/.operator.toml
+/.operator.toml.bak
+/.operator.toml.tmp
+/.mcp.json
+/.codex/
+/.gemini/
+/.cursor/
+/.agents/
+.DS_Store
+
+# Python experiment harness cache
+__pycache__/
+*.pyc

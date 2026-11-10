@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - name: Format
+        run: cargo fmt -p operator -- --check
+      - name: Check
+        run: cargo check --locked
+      - name: Check without TUI
+        run: cargo check --locked --no-default-features --all-targets
+      - name: Test
+        run: cargo nextest run --status-level fail -p operator
+      - name: Test without TUI
+        run: cargo nextest run --no-default-features -p operator --status-level fail
+      - name: Clippy
+        run: cargo clippy --all-targets
+      - name: Docs
+        run: cargo doc --no-deps

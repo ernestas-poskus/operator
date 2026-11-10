@@ -1,0 +1,16 @@
+[package]
+name = "crate-map"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Cargo workspace/crate structure detection: manifests, crate boundaries, module trees, and a deterministic CRATE MAP (filesystem policy supplied by the caller)."
+license = "MIT"
+publish = false
+
+[dependencies]
+toml = "1.1"
+glob = "0.3"
+ignore = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
