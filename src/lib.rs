@@ -10,6 +10,7 @@ mod chunk_context;
 mod cli;
 mod code_search;
 pub mod config;
+mod console;
 mod document;
 mod embedding;
 pub mod error;

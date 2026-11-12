@@ -22,6 +22,7 @@
 //! Writes are atomic (temp file plus rename), so a host reading the file while
 //! `serve` reconciles it never sees a half-written document.
 
+use crate::console::note;
 use crate::error::{Error, Result};
 use crate::types::{Argv, HostFile, UpdatedAt};
 use std::path::Path;
@@ -196,7 +197,7 @@ fn write_json(
         .entry("mcpServers")
         .or_insert_with(|| serde_json::json!({}));
     let Some(servers) = servers.as_object_mut() else {
-        eprintln!(
+        note!(
             "{log_prefix}: {} has a non-object `mcpServers` — leaving it",
             path.display()
         );
@@ -258,7 +259,7 @@ fn write_codex(path: &Path, transport: &Transport, mode: Mode, log_prefix: &str)
         .entry("mcp_servers")
         .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
     let Some(servers) = servers.as_table_mut() else {
-        eprintln!(
+        note!(
             "{log_prefix}: {} has a non-table `mcp_servers` — leaving it",
             path.display()
         );
@@ -268,7 +269,7 @@ fn write_codex(path: &Path, transport: &Transport, mode: Mode, log_prefix: &str)
         .entry(SERVER)
         .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
     let Some(table) = entry.as_table_mut() else {
-        eprintln!(
+        note!(
             "{log_prefix}: {} has a non-table `mcp_servers.{SERVER}` — leaving it",
             path.display()
         );
@@ -325,19 +326,19 @@ fn write_atomic(path: &Path, text: &str, log_prefix: &str) -> Result<bool> {
         .map_err(|e| Error::msg(format!("writing {} failed: {e}", tmp.display())))?;
     std::fs::rename(&tmp, path)
         .map_err(|e| Error::msg(format!("renaming {} failed: {e}", tmp.display())))?;
-    eprintln!("{log_prefix}: wrote {}", path.display());
+    note!("{log_prefix}: wrote {}", path.display());
     Ok(true)
 }
 
 fn announce_kept(log_prefix: &str, path: &Path) {
-    eprintln!(
+    note!(
         "{log_prefix}: {} already exists — leaving it (use --force to rewrite)",
         path.display()
     );
 }
 
 fn announce_unreadable(log_prefix: &str, path: &Path) {
-    eprintln!(
+    note!(
         "{log_prefix}: {} is not a document the operator can edit — leaving it \
          (use --force-register to rewrite it)",
         path.display()

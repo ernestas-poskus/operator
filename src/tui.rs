@@ -53,6 +53,9 @@ struct Node {
     parent: Option<PathBuf>,
     language: Option<LanguageId>,
     files: FileCount,
+    /// Matched by `.gitignore`, so the default walk skips it. Rendered last,
+    /// collapsed and unchecked; an explicit include still overrides it.
+    ignored: bool,
 }
 
 struct App {
@@ -87,6 +90,10 @@ struct App {
     stats: crate::learn::JournalStats,
     stats_at: Instant,
     started: Instant,
+    /// Force a full terminal repaint on the next frame (tab switches). Index
+    /// progress is silenced in TUI mode, but a repaint is cheap insurance
+    /// against any other writer that touched the alternate screen.
+    force_clear: bool,
 }
 
 impl App {
@@ -103,7 +110,7 @@ impl App {
         let trees = build_tree(&workspace);
         let mut expanded = HashSet::new();
         for node in &trees {
-            if node.is_dir && node.depth == 0 {
+            if node.is_dir && node.depth == 0 && !node.ignored {
                 expanded.insert(node.path.clone());
             }
         }
@@ -154,6 +161,7 @@ impl App {
             stats: Default::default(),
             stats_at: Instant::now() - Duration::from_secs(10),
             started: Instant::now(),
+            force_clear: false,
         };
         app.prefill();
         app
@@ -537,22 +545,27 @@ impl App {
             KeyCode::Char('1') => {
                 self.tab = Tab::Sources;
                 self.quit_armed = false;
+                self.force_clear = true;
             }
             KeyCode::Char('2') => {
                 self.tab = Tab::Index;
                 self.quit_armed = false;
+                self.force_clear = true;
             }
             KeyCode::Char('3') => {
                 self.tab = Tab::Stats;
                 self.quit_armed = false;
+                self.force_clear = true;
             }
             KeyCode::Char('4') => {
                 self.tab = Tab::Usage;
                 self.quit_armed = false;
+                self.force_clear = true;
             }
             KeyCode::Char('5') => {
                 self.tab = Tab::Review;
                 self.quit_armed = false;
+                self.force_clear = true;
             }
             KeyCode::Tab => {
                 self.focus = !self.focus;
@@ -728,6 +741,9 @@ impl App {
                 let marker = match state {
                     Some(Selection::Include) => "[i] ",
                     Some(Selection::Exclude) => "[e] ",
+                    // Gitignored entries are unchecked by default: the default
+                    // walk skips them, so the checkbox states what indexing does.
+                    None if node.ignored => "[e] ",
                     None => "[ ] ",
                 };
                 let icon = if node.is_dir {
@@ -740,7 +756,7 @@ impl App {
                     "  "
                 };
                 let text = format!(
-                    "{}{}{}{}{}",
+                    "{}{}{}{}{}{}",
                     "  ".repeat(node.depth),
                     marker,
                     icon,
@@ -749,9 +765,15 @@ impl App {
                         format!(" ({})", node.files)
                     } else {
                         String::new()
-                    }
+                    },
+                    if node.ignored { "  · gitignored" } else { "" }
                 );
-                ListItem::new(text)
+                let item = ListItem::new(text);
+                if node.ignored {
+                    item.style(Style::default().add_modifier(Modifier::DIM))
+                } else {
+                    item
+                }
             })
             .collect();
         self.tree_state.select(selected_pos);
@@ -985,12 +1007,20 @@ impl App {
 
     fn message(&self) -> String {
         match self.tab {
-            Tab::Sources => format!(
-                "{} languages · {} visible nodes{}",
-                self.selected_languages.len(),
-                self.visible().len(),
-                if self.dirty { " · unsaved" } else { "" }
-            ),
+            Tab::Sources => {
+                let ignored = self.trees.iter().filter(|node| node.ignored).count();
+                format!(
+                    "{} languages · {} visible nodes · {}{}",
+                    self.selected_languages.len(),
+                    self.visible().len(),
+                    if ignored > 0 {
+                        format!("{ignored} gitignored at the bottom")
+                    } else {
+                        "no gitignored sources".to_string()
+                    },
+                    if self.dirty { " · unsaved" } else { "" }
+                )
+            }
             Tab::Index => self
                 .progress
                 .as_ref()
@@ -1071,9 +1101,51 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
     }
 }
 
+/// Directories the Sources tree never lists: VCS metadata and build or
+/// dependency trees. The gitignore-aware walker and the rendered tree share
+/// this predicate, so both agree on what exists under the workspace.
+fn keep_name(name: &str) -> bool {
+    !matches!(
+        name,
+        ".git" | "node_modules" | "target" | "vendor" | "dist" | ".cache"
+    )
+}
+
+fn keep_entry(entry: &ignore::DirEntry) -> bool {
+    keep_name(&entry.file_name().to_string_lossy())
+}
+
+/// Paths git would let the indexer see, from the same walker the retrieval
+/// discovery uses. Anything present on disk but absent here is gitignored.
+fn git_visible(root: &Path) -> HashSet<PathBuf> {
+    ignore::WalkBuilder::new(root)
+        // Same policy as `code_search::workspace_walker`: hidden entries are
+        // visible so their rules apply, and `.gitignore` is honoured even
+        // outside a git repository.
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .parents(true)
+        .require_git(false)
+        .filter_entry(keep_entry)
+        .build()
+        .filter_map(|entry| entry.ok())
+        .map(ignore::DirEntry::into_path)
+        .collect()
+}
+
 fn build_tree(root: &Path) -> Vec<Node> {
-    fn walk(root: &Path, dir: &Path, depth: usize, parent: Option<&Path>, out: &mut Vec<Node>) {
-        if out.len() > 20_000 {
+    fn walk(
+        root: &Path,
+        dir: &Path,
+        depth: usize,
+        parent: Option<&Path>,
+        visible: &HashSet<PathBuf>,
+        tracked: &mut Vec<Node>,
+        ignored: &mut Vec<Node>,
+    ) {
+        if tracked.len() + ignored.len() > 20_000 {
             return;
         }
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1089,18 +1161,10 @@ fn build_tree(root: &Path) -> Vec<Node> {
         for entry in entries {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
-            if name == ".git" {
+            if !keep_name(&name) {
                 continue;
             }
             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            if is_dir
-                && matches!(
-                    name.as_str(),
-                    "node_modules" | "target" | "vendor" | "dist" | ".cache"
-                )
-            {
-                continue;
-            }
             let rel = RepoPath::from(
                 path.strip_prefix(root)
                     .unwrap_or(&path)
@@ -1112,7 +1176,7 @@ fn build_tree(root: &Path) -> Vec<Node> {
             } else {
                 languages::language_id_for_path(&path)
             };
-            out.push(Node {
+            let node = Node {
                 path: path.clone(),
                 rel,
                 name,
@@ -1121,14 +1185,33 @@ fn build_tree(root: &Path) -> Vec<Node> {
                 parent: parent.map(Path::to_path_buf),
                 language,
                 files: FileCount::default(),
-            });
+                ignored: !visible.contains(&path),
+            };
+            if node.ignored {
+                ignored.push(node);
+            } else {
+                tracked.push(node);
+            }
             if is_dir {
-                walk(root, &path, depth + 1, Some(&path), out);
+                walk(
+                    root,
+                    &path,
+                    depth + 1,
+                    Some(&path),
+                    visible,
+                    tracked,
+                    ignored,
+                );
             }
         }
     }
     let mut nodes = Vec::new();
-    walk(root, root, 0, None, &mut nodes);
+    let mut ignored = Vec::new();
+    let visible = git_visible(root);
+    walk(root, root, 0, None, &visible, &mut nodes, &mut ignored);
+    // Gitignored entries render after every tracked entry, in their own
+    // collapsed section at the bottom of the list.
+    nodes.extend(ignored);
     // fill directory counts bottom-up
     for index in (0..nodes.len()).rev() {
         let path = nodes[index].path.clone();
@@ -1169,11 +1252,36 @@ fn terminal() -> Result<Guard> {
     Ok(Guard { terminal })
 }
 
+/// Withhold raw index diagnostics while the TUI owns the terminal, restoring
+/// them on every exit path (including a draw error or a panic unwind).
+struct QuietGuard;
+
+impl Drop for QuietGuard {
+    fn drop(&mut self) {
+        crate::console::set_quiet(false);
+    }
+}
+
 async fn run_app(mut app: App) -> Result<()> {
     let mut guard = terminal()?;
     guard.terminal.clear().ok();
+    crate::console::set_quiet(true);
+    // hf-hub renders download progress bars directly on stderr when it sees a
+    // TTY — which the alternate screen still is. Disable them for this process
+    // so a first-run model download cannot paint over the dashboard; the
+    // Index events panel reports the same progress.
+    // SAFETY: set before the index task or any model loader can start; the TUI
+    // is the only thread reading it afterwards.
+    unsafe {
+        std::env::set_var("HF_HUB_DISABLE_PROGRESS_BARS", "1");
+    }
+    let _quiet = QuietGuard;
     loop {
         app.tick();
+        if app.force_clear {
+            guard.terminal.clear().ok();
+            app.force_clear = false;
+        }
         guard
             .terminal
             .draw(|frame| app.draw(frame))
@@ -1330,6 +1438,75 @@ mod tests {
         let cfg = app.config();
         assert_eq!(cfg.retrieval_include.unwrap(), vec!["src".to_string()]);
         assert_eq!(cfg.retrieval_exclude.unwrap(), vec!["a.go".to_string()]);
+    }
+
+    #[test]
+    fn gitignored_sources_are_last_collapsed_and_unchecked() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/a.rs"), "fn main() {}\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("generated")).unwrap();
+        std::fs::write(dir.path().join("generated/b.rs"), "fn b() {}\n").unwrap();
+        std::fs::write(dir.path().join("debug.log"), "noise\n").unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "generated/\n*.log\n").unwrap();
+        let detected = languages::detect(dir.path());
+        let mut app = App::new(dir.path().to_path_buf(), "test", detected);
+
+        let first_ignored = app
+            .trees
+            .iter()
+            .position(|node| node.ignored)
+            .expect("gitignored nodes");
+        assert!(
+            app.trees[..first_ignored].iter().all(|node| !node.ignored),
+            "tracked entries must come first"
+        );
+        assert!(
+            app.trees[first_ignored..].iter().all(|node| node.ignored),
+            "gitignored entries form one trailing section"
+        );
+
+        let generated = app
+            .trees
+            .iter()
+            .find(|node| node.name == "generated")
+            .expect("generated directory");
+        assert!(generated.ignored && generated.is_dir);
+        assert!(
+            !app.expanded.contains(&generated.path),
+            "gitignored directories start collapsed"
+        );
+        assert!(
+            !app.visible()
+                .iter()
+                .any(|&index| app.trees[index].name == "b.rs"),
+            "a collapsed ignored directory hides its children"
+        );
+        assert!(
+            app.trees
+                .iter()
+                .any(|node| node.name == "debug.log" && node.ignored)
+        );
+        assert!(
+            app.effective(generated).is_none(),
+            "gitignored entries are unchecked until the user includes them"
+        );
+
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(text.contains("gitignored"), "the section must be labelled");
+        assert!(
+            text.find("a.rs").unwrap_or(usize::MAX) < text.find("generated").unwrap_or(0),
+            "tracked rows render above the gitignored section"
+        );
     }
 
     #[test]

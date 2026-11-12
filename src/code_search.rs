@@ -69,6 +69,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::console::note;
+
 /// Logic-version stamp for the local pipeline, hashed into the run cache key
 /// and the LanceDB table name: bump whenever chunking/search/rerank behavior
 /// changes so old indexes and cached rows are never replayed.
@@ -2380,18 +2382,18 @@ async fn insert_file_chunks(
     let batch = match chunks_to_batch(&chunks) {
         Ok(batch) => batch,
         Err(e) => {
-            eprintln!("  (retrieval: building batch for {file} failed: {e})");
+            note!("  (retrieval: building batch for {file} failed: {e})");
             return false;
         }
     };
     if let Err(e) = table.add(batch).execute().await {
-        eprintln!("  (retrieval: inserting {file} chunks failed: {e})");
+        note!("  (retrieval: inserting {file} chunks failed: {e})");
         return false;
     }
     if let Some(hash) = discovered_map.get(file) {
         new_manifest.insert(file.to_string(), hash.to_string());
     }
-    eprintln!("  retrieval: embedded {file} ({} chunks)", chunks.len());
+    note!("  retrieval: embedded {file} ({} chunks)", chunks.len());
     true
 }
 
@@ -2505,7 +2507,7 @@ impl LocalCodeIndex {
                     inner.secondary = Some(secondary);
                 }
             }
-            None => eprintln!(
+            None => note!(
                 "  (retrieval: dual index `{}` failed to build; symbol queries fall back to the primary index)",
                 dcfg.retrieval_embed_model
             ),
@@ -2546,7 +2548,7 @@ impl LocalCodeIndex {
                 .flat_map(|root| discover_include_files(root))
                 .collect();
         if files.is_empty() && document_files.is_empty() && include_files.is_empty() {
-            eprintln!(
+            note!(
                 "  (retrieval: no indexable source files under {})",
                 cfg.workspace_root.display()
             );
@@ -2589,7 +2591,7 @@ impl LocalCodeIndex {
             match crate::fastembed::FastembedModels::build(cfg) {
                 Ok(models) => Arc::new(models),
                 Err(e) => {
-                    eprintln!("  (retrieval: fastembed backend unavailable — {e})");
+                    note!("  (retrieval: fastembed backend unavailable — {e})");
                     return None;
                 }
             };
@@ -2597,11 +2599,11 @@ impl LocalCodeIndex {
         // embed: a missing device, cache or model id is the common
         // misconfiguration.
         if let Err(e) = models.preflight(cfg.retrieval_rerank_enabled.is_on()).await {
-            eprintln!("  (retrieval: fastembed backend unavailable — {e})");
+            note!("  (retrieval: fastembed backend unavailable — {e})");
             return None;
         }
         if models.embed_dim() != cfg.retrieval_embed_dim {
-            eprintln!(
+            note!(
                 "  (retrieval: backend produces {}-d vectors but retrieval_embed_dim is {})",
                 models.embed_dim(),
                 cfg.retrieval_embed_dim
@@ -2614,7 +2616,7 @@ impl LocalCodeIndex {
         {
             Ok(db) => db,
             Err(e) => {
-                eprintln!(
+                note!(
                     "  (retrieval: opening LanceDB at {} failed: {e})",
                     cfg.retrieval_cache_dir.display()
                 );
@@ -2641,7 +2643,7 @@ impl LocalCodeIndex {
                 match crate::document::convert_file(path).await {
                     Ok(converted) => {
                         if let Some(primary_error) = &converted.fallback {
-                            eprintln!(
+                            note!(
                                 "  (retrieval: {rel}: converted via {} after {primary_error} — partial)",
                                 converted.engine.label()
                             );
@@ -2650,7 +2652,7 @@ impl LocalCodeIndex {
                         cap_document_text(converted.markdown)
                     }
                     Err(e) => {
-                        eprintln!("  (retrieval: {rel}: {e} — skipped)");
+                        note!("  (retrieval: {rel}: {e} — skipped)");
                         continue;
                     }
                 }
@@ -2665,7 +2667,7 @@ impl LocalCodeIndex {
             discovered.push((rel, hash.into_inner()));
         }
         if discovered.is_empty() {
-            eprintln!("  (retrieval: no readable source files)");
+            note!("  (retrieval: no readable source files)");
             return None;
         }
 
@@ -2712,14 +2714,12 @@ impl LocalCodeIndex {
                         .execute()
                         .await
                     {
-                        eprintln!(
-                            "  (retrieval: FTS index creation failed, dense-only search: {e})"
-                        );
+                        note!("  (retrieval: FTS index creation failed, dense-only search: {e})");
                     }
                     table
                 }
                 Err(e) => {
-                    eprintln!("  (retrieval: creating LanceDB table {name} failed: {e})");
+                    note!("  (retrieval: creating LanceDB table {name} failed: {e})");
                     return None;
                 }
             },
@@ -2741,7 +2741,7 @@ impl LocalCodeIndex {
         for path in to_drop.iter().chain(to_embed.iter()) {
             let predicate = format!("file_path = {}", sql_string_literal(path));
             if let Err(e) = table.delete(predicate.as_str()).await {
-                eprintln!("  (retrieval: dropping stale rows for {path} failed: {e})");
+                note!("  (retrieval: dropping stale rows for {path} failed: {e})");
             }
         }
 
@@ -2847,24 +2847,24 @@ impl LocalCodeIndex {
                                         );
                                     }
                                 }
-                                Ok(_) => eprintln!(
+                                Ok(_) => note!(
                                     "  (retrieval: embedding count mismatch for {file}; skipping)"
                                 ),
                                 Err(e) => {
-                                    eprintln!("  (retrieval: embedding {file} failed: {e})")
+                                    note!("  (retrieval: embedding {file} failed: {e})")
                                 }
                             }
                         }
                     }
                 }
             }
-            eprintln!(
+            note!(
                 "  retrieval: embedded {embedded}/{} changed files ({embedded_chunks} chunks) in {:.1}s",
                 to_embed.len(),
                 embed_started.elapsed().as_secs_f64(),
             );
         } else {
-            eprintln!("  retrieval: manifest cache hit — no re-embedding");
+            note!("  retrieval: manifest cache hit — no re-embedding");
         }
         // The vector index needs data to train: create it after the first
         // successful inserts (tolerant — on later runs it already exists, and
@@ -2883,10 +2883,10 @@ impl LocalCodeIndex {
                 .execute()
                 .await
             {
-                eprintln!("  (retrieval: vector index creation failed: {e})");
+                note!("  (retrieval: vector index creation failed: {e})");
             }
         } else if embedded > 0 {
-            eprintln!(
+            note!(
                 "  retrieval: vector index skipped (--retrieval-vector-index exact: dense search \
                  scans every stored vector)"
             );
@@ -2922,7 +2922,7 @@ impl LocalCodeIndex {
             }
         }
 
-        eprintln!(
+        note!(
             "  retrieval: {} code chunks indexed across {} crate(s) under {} (provider: fastembed, local hybrid: {} + Tantivy FTS + {}, tool: search_vector_store)",
             by_id.len(),
             by_id
