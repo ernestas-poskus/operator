@@ -139,7 +139,9 @@ references, diagnostics, rename, or edits; use the host’s compiler/LSP for tho
 - **Local-first.** The index lives under `.cache/retrieval`; models are loaded
   in-process through fastembed/candle. There is no model HTTP server, provider
   API key, or remote control plane. The first run downloads the model snapshots
-  (about 2.5 GB); later runs use the cache offline.
+  (about 2.5 GB) into the shared per-user cache — `~/.cache/fastembed`, or the
+  configured Hugging Face cache — so every workspace on the machine reuses them
+  offline.
 - **Explicit corpus identity.** Languages, include/exclude paths, chunker,
   embedder, backend and index settings are baked into the table name. Changing a
   material input creates a new table and requires `operator reindex`; it never
@@ -314,7 +316,7 @@ languages = ["rust", "go", "dart"]
 # retrieval_exclude = ["tests/fixtures"]
 # retrieval_embed_model = "mixedbread-ai/mxbai-embed-large-v1"
 # retrieval_rerank_model = "Qwen/Qwen3-Reranker-0.6B"
-# retrieval_model_cache_dir = ".cache/retrieval/models"  # default; any HF cache is discovered first
+# retrieval_model_cache_dir = "~/.cache/fastembed"      # default; any HF cache is discovered first
 # retrieval_model_dtype = "f16"                          # or "f32"
 # retrieval_embed_backend = "bert"                       # or "qwen3"
 # retrieval_embed_dim = 1024                             # model width (e.g. 2560 for Qwen3-4B)
