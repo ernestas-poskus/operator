@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### Fixed
+
+- The TUI no longer leaves index log lines over the Sources view: while the
+  dashboard owns the terminal, index diagnostics and MCP-registration notes are
+  routed to the Index events panel instead of stderr, hf-hub progress bars are
+  disabled, and a tab switch forces a full repaint.
+
 ## [Unreleased]
 
 ### Added
@@ -35,6 +42,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Cost: +39 MB unstripped binary (+12%), no measurable build-time change.
 
 ### Changed
+
+- Model weights are downloaded into the shared per-user cache
+  (`retrieval_model_cache_dir` when set, else `HF_HOME/hub` / `HF_HUB_CACHE`
+  when configured, else `XDG_CACHE_HOME/fastembed`, else
+  `~/.cache/fastembed`) instead of the workspace's retrieval cache, so the
+  ~2.5 GB snapshot is reused by every workspace on the machine. A complete
+  cache found anywhere is still used as-is; the workspace path is only the
+  fallback when no home directory is known.
+- The TUI Sources tree lists `.gitignore`d sources in a dimmed, collapsed,
+  unchecked section at the bottom, labelled `gitignored`; expanding and
+  including one still overrides the ignore for that path.
 
 - Interactive CLI prompts use [`demand`](https://github.com/jdx/demand); the
   `dialoguer` dependency is gone. `operator init`'s language picker is
