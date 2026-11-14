@@ -53,6 +53,8 @@ jobs:
           sudo apt-get install -y protobuf-compiler nvidia-cuda-toolkit
 
       - name: Build binary (release)
+        env:
+          CUDA_COMPUTE_CAP: "80"
         run: cargo build --release --locked --bin code-intelligence --target ${{ matrix.target }}
 
       - name: Package archive (Unix)
