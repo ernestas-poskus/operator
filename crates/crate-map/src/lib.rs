@@ -15,7 +15,7 @@
 //! and the directory-exclusion set are parameters: the four filesystem-walking
 //! entry points ([`crate_scopes`], [`load_crate_record`], [`entry_first_order`],
 //! [`manifest_prelude`]) take an `exclude` predicate, and the caller passes its
-//! own (the `operator` bin passes `code_search::is_excluded_dir`; the crate's
+//! own (the `code-intelligence` bin passes `code_search::is_excluded_dir`; the crate's
 //! tests pass a local copy). That keeps the crate free of any host's notion of
 //! what a workspace is — the same boundary `mentions` draws when it leaves
 //! containment to its caller.

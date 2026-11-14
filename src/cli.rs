@@ -5,7 +5,7 @@ use crate::types::{CommaSeparated, JournalDir, LookbackWindow, WorkspaceRoot};
 
 #[derive(FromArgs, Debug)]
 /// Read-only code-intelligence MCP server for coding agents.
-pub struct OperatorCli {
+pub struct CodeIntelligenceCli {
     #[argh(subcommand)]
     pub command: Command,
 }

@@ -15,7 +15,7 @@ use crate::types::{
 };
 
 #[derive(Clone)]
-pub struct OperatorMcpServer {
+pub struct CodeIntelligenceMcpServer {
     state: Arc<tools::ToolState>,
 }
 
@@ -112,7 +112,7 @@ fn selected_language(
 }
 
 #[tool_router]
-impl OperatorMcpServer {
+impl CodeIntelligenceMcpServer {
     #[tool(
         name = "repo_map",
         description = "Read-only ast-grep outline: files, symbols, imports and exports. Use for orientation before reading source."
@@ -275,7 +275,7 @@ impl OperatorMcpServer {
 
     #[tool(
         name = "search_semantic",
-        description = "Hybrid LanceDB dense + full-text search over the selected-language index. Requires `operator reindex`."
+        description = "Hybrid LanceDB dense + full-text search over the selected-language index. Requires `code-intelligence reindex`."
     )]
     async fn search_semantic(
         &self,
@@ -365,9 +365,9 @@ impl OperatorMcpServer {
     name = "operator",
     instructions = "Read-only code intelligence for a workspace: ast-grep structural search, outline, indexed text/semantic search, and source reads. Use the host's compiler/editor tools for type and reference semantics. No tool edits files."
 )]
-impl ServerHandler for OperatorMcpServer {}
+impl ServerHandler for CodeIntelligenceMcpServer {}
 
-impl OperatorMcpServer {
+impl CodeIntelligenceMcpServer {
     pub fn new(state: Arc<tools::ToolState>) -> Self {
         Self { state }
     }

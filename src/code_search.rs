@@ -1448,7 +1448,7 @@ pub struct RetrievalRefresh {
 
 /// Build (or incrementally refresh) the retrieval corpus index for `cfg`.
 ///
-/// The one path both `operator reindex` and `operator serve`'s watcher take,
+/// The one path both `code-intelligence reindex` and `code-intelligence serve`'s watcher take,
 /// so the two cannot drift. `Err` names the established degradation (no source
 /// files, models unavailable, or LanceDB refused); the caller decides whether
 /// that is fatal (`reindex`) or a logged, retried watcher pass (`serve`).
@@ -4852,7 +4852,7 @@ mod tests {
                 "crateonly",
                 "fn unrelated_name() {}",
                 "src/scope/crate_name.rs",
-                "operator",
+                "code-intelligence",
             ),
         ]
     }
@@ -4937,7 +4937,7 @@ mod tests {
         .into_iter()
         .next()
         .unwrap();
-        chunk.crate_name = CrateName::from("operator");
+        chunk.crate_name = CrateName::from("code-intelligence");
         let text = fts_text_of(&chunk);
         for term in ["read", "run", "record", "session"] {
             assert!(

@@ -75,16 +75,18 @@ impl Operator {
     /// source reads, and [`Operator::has_index`] reports false.
     pub async fn open(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = canonical_workspace(workspace.as_ref())?;
-        let ws = WorkspaceConfig::load(&workspace)?
-            .ok_or_else(|| Error::Config("no .operator.toml; run `operator init` first".into()))?;
+        let ws = WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
+            Error::Config("no .operator.toml; run `code-intelligence init` first".into())
+        })?;
         Self::from_config(ws.into_config(&workspace)).await
     }
 
     /// Open a configured workspace without loading models or building an index.
     pub fn open_unindexed(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = canonical_workspace(workspace.as_ref())?;
-        let ws = WorkspaceConfig::load(&workspace)?
-            .ok_or_else(|| Error::Config("no .operator.toml; run `operator init` first".into()))?;
+        let ws = WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
+            Error::Config("no .operator.toml; run `code-intelligence init` first".into())
+        })?;
         Self::from_config_unindexed(ws.into_config(&workspace))
     }
 
@@ -238,7 +240,7 @@ impl Operator {
 
     /// Serve the five tools over stdio MCP from this in-process state.
     pub async fn serve_stdio(self) -> Result<()> {
-        crate::mcp_server::OperatorMcpServer::new(self.state)
+        crate::mcp_server::CodeIntelligenceMcpServer::new(self.state)
             .serve_stdio()
             .await
     }

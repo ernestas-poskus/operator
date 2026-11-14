@@ -253,7 +253,7 @@ pub async fn search_semantic(
     let index = state
         .index
         .as_ref()
-        .ok_or_else(|| "index_missing: run `operator reindex` first".to_string())?;
+        .ok_or_else(|| "index_missing: run `code-intelligence reindex` first".to_string())?;
     let hits = index
         .hybrid_search(
             query.as_str(),

@@ -1,4 +1,4 @@
-//! `operator init`: detect ast-grep languages and persist the selection.
+//! `code-intelligence init`: detect ast-grep languages and persist the selection.
 use std::io::IsTerminal;
 use std::path::Path;
 
@@ -142,7 +142,7 @@ pub async fn run(args: InitArgs) -> Result<()> {
         "init: wrote {}",
         WorkspaceConfig::path_for(&workspace).display()
     );
-    println!("next: operator reindex");
+    println!("next: code-intelligence reindex");
     Ok(())
 }
 

@@ -14,8 +14,9 @@ pub async fn run(args: ServeArgs) -> Result<()> {
     let workspace = std::fs::canonicalize(&root)
         .map(WorkspaceRoot::from)
         .unwrap_or(root);
-    let ws = WorkspaceConfig::load(&workspace)?
-        .ok_or_else(|| Error::Config("no .operator.toml; run `operator init` first".into()))?;
+    let ws = WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
+        Error::Config("no .operator.toml; run `code-intelligence init` first".into())
+    })?;
     let cfg = ws.into_config(&workspace);
     validate(&cfg)?;
     if !args.no_register {
@@ -36,7 +37,7 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         cfg,
         index,
     });
-    crate::mcp_server::OperatorMcpServer::new(state)
+    crate::mcp_server::CodeIntelligenceMcpServer::new(state)
         .serve_stdio()
         .await
 }
@@ -44,7 +45,7 @@ pub async fn run(args: ServeArgs) -> Result<()> {
 pub fn validate(cfg: &crate::config::Config) -> Result<()> {
     if cfg.languages.is_empty() {
         return Err(Error::Config(
-            "no languages selected; run `operator init`".into(),
+            "no languages selected; run `code-intelligence init`".into(),
         ));
     }
     let root = std::fs::canonicalize(&cfg.workspace_root)

@@ -1,4 +1,4 @@
-//! Terminal setup/dashboard for code-intelligence operator.
+//! Terminal setup/dashboard for code-intelligence.
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
@@ -714,7 +714,7 @@ impl App {
         if self.help {
             let popup = centered(area, 70, 16);
             frame.render_widget(Clear, popup);
-            let help = "operator TUI\n\n1-5 tabs  Tab focus  ↑↓ navigate  ←→ collapse/expand\nSpace toggle  i include  e exclude  u clear\n/ search  r index  b rebuild  a save+index  s save\nesc/q quit  ? help";
+            let help = "code-intelligence TUI\n\n1-5 tabs  Tab focus  ↑↓ navigate  ←→ collapse/expand\nSpace toggle  i include  e exclude  u clear\n/ search  r index  b rebuild  a save+index  s save\nesc/q quit  ? help";
             frame.render_widget(
                 Paragraph::new(help).block(Block::default().borders(Borders::ALL).title("help")),
                 popup,
@@ -962,7 +962,7 @@ impl App {
         }
         if self.stats.tools.is_empty() {
             lines.push(Line::from(
-                "no journal calls yet — run `operator serve` and call a tool",
+                "no journal calls yet — run `code-intelligence serve` and call a tool",
             ));
         }
         frame.render_widget(
@@ -1370,7 +1370,7 @@ pub async fn run_reindex(workspace: WorkspaceRoot, rebuild: bool) -> Result<()> 
         .unwrap_or(workspace);
     if WorkspaceConfig::load(&workspace)?.is_none() {
         return Err(Error::Config(
-            "no .operator.toml; run `operator init` first".into(),
+            "no .operator.toml; run `code-intelligence init` first".into(),
         ));
     }
     let detected = languages::detect(&workspace);
@@ -1390,7 +1390,7 @@ pub async fn run(args: TuiArgs) -> Result<()> {
         .unwrap_or(root);
     if WorkspaceConfig::load(&workspace)?.is_none() {
         return Err(Error::Config(
-            "no .operator.toml; run `operator init` first".into(),
+            "no .operator.toml; run `code-intelligence init` first".into(),
         ));
     }
     let detected = languages::detect(&workspace);

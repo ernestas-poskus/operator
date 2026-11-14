@@ -117,7 +117,7 @@ async fn status_is_available_without_an_index() {
 fn open_without_a_config_is_an_error() {
     let dir = fixture();
     let error = Operator::open_unindexed(dir.path()).expect_err("config is required");
-    assert!(matches!(error, Error::Config(message) if message.contains("operator init")));
+    assert!(matches!(error, Error::Config(message) if message.contains("code-intelligence init")));
 }
 
 #[test]

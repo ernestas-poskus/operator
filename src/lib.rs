@@ -42,7 +42,7 @@ pub use error::{Error, Result};
 pub use workspace_config::WorkspaceConfig;
 
 pub async fn run() -> error::Result<()> {
-    let cli: cli::OperatorCli = argh::from_env();
+    let cli: cli::CodeIntelligenceCli = argh::from_env();
     match cli.command {
         Command::Init(args) => init::run(args).await,
         #[cfg(feature = "tui")]
@@ -61,7 +61,7 @@ async fn reindex(args: cli::ReindexArgs) -> error::Result<()> {
         .map(crate::types::WorkspaceRoot::from)
         .unwrap_or(root);
     let ws = workspace_config::WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
-        error::Error::Config("no .operator.toml; run `operator init` first".into())
+        error::Error::Config("no .operator.toml; run `code-intelligence init` first".into())
     })?;
     let cfg = ws.into_config(&workspace);
     serve::validate(&cfg)?;

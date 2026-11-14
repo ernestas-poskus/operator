@@ -7,7 +7,7 @@
 //!
 //! - the **path** of the file the chunk came from (`File: src/a.rs`),
 //! - the **crate + module** the file belongs to, from the crate map's scopes
-//!   plus Cargo's module conventions (`Module: operator::code_search`),
+//!   plus Cargo's module conventions (`Module: code_intelligence::code_search`),
 //! - the **enclosing items** the chunk sits inside, from a brace-aware scan of
 //!   the file (`Symbols: impl LocalCodeIndex > fn build`).
 //!
@@ -759,17 +759,20 @@ mod tests {
     #[test]
     fn module_paths_follow_cargo_conventions() {
         // A root package: crate_dir is empty, the file path is crate-relative.
-        let root = "operator";
-        assert_eq!(module_path_of(root, "", "src/lib.rs"), "operator");
-        assert_eq!(module_path_of(root, "", "src/main.rs"), "operator");
+        let root = "code-intelligence";
+        assert_eq!(module_path_of(root, "", "src/lib.rs"), "code_intelligence");
+        assert_eq!(module_path_of(root, "", "src/main.rs"), "code_intelligence");
         assert_eq!(
             module_path_of(root, "", "src/code_search.rs"),
-            "operator::code_search"
+            "code_intelligence::code_search"
         );
-        assert_eq!(module_path_of(root, "", "src/foo/mod.rs"), "operator::foo");
+        assert_eq!(
+            module_path_of(root, "", "src/foo/mod.rs"),
+            "code_intelligence::foo"
+        );
         assert_eq!(
             module_path_of(root, "", "src/foo/bar.rs"),
-            "operator::foo::bar"
+            "code_intelligence::foo::bar"
         );
         // A `src/bin` target is its own root, not a module of the package.
         assert_eq!(module_path_of(root, "", "src/bin/tool.rs"), "tool");
@@ -800,7 +803,7 @@ mod tests {
         // A `./` prefix and Windows separators normalize first.
         assert_eq!(
             module_path_of(root, "", "./src\\code_search.rs"),
-            "operator::code_search"
+            "code_intelligence::code_search"
         );
     }
 

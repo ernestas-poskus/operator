@@ -1,6 +1,6 @@
 //! Document-router benchmark driver used by `bench/doc-router/`.
 //!
-//! Converts a TSV manifest (`id<TAB>path<TAB>ext`) with the operator document
+//! Converts a TSV manifest (`id<TAB>path<TAB>ext`) with the code-intelligence document
 //! router, one engine/policy per invocation, and emits one JSONL row per
 //! (document, repetition). This is the same code path the retrieval corpus
 //! uses, so the snapshot experiment measures what ships.
