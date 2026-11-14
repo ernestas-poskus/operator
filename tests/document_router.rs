@@ -8,7 +8,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use operator::{
+use code_intelligence::{
     DOCUMENT_EXTENSIONS, DocError, DocumentEngine, Engine, FallbackPolicy, convert_document,
     route_for,
 };

@@ -1,7 +1,7 @@
-# operator
+# code-intelligence
 
 Read-only code intelligence for coding agents, served over the Model Context
-Protocol. Operator indexes a workspace locally once, then gives Codex, Claude
+Protocol. Code-intelligence indexes a workspace locally once, then gives Codex, Claude
 Code, Cursor, agy, and other MCP hosts five tools: repository outline, structural
 AST search, full-text search, hybrid semantic search, and bounded source reads.
 
@@ -10,7 +10,9 @@ No planner, no reviewer loop, no web research, no LSP process, no code edits.
 ## Install
 
 ```bash
-cargo install --git https://github.com/ernestas-poskus/operator --locked
+cargo install code-intelligence --locked
+# or from git repository:
+cargo install --git https://github.com/ernestas-poskus/code-intelligence --locked
 # or from a local checkout:
 cargo install --path . --locked
 ```
@@ -31,11 +33,11 @@ Requirements:
 
 ## Library
 
-`operator` is also a library. The facade exposes the same read-only operations
+`code-intelligence` is also a library. The facade exposes the same read-only operations
 as the MCP server without spawning a process:
 
 ```rust,no_run
-use operator::{Error, LanguageId, Limit, Operator, QueryText};
+use code_intelligence::{Error, LanguageId, Limit, Operator, QueryText};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -60,14 +62,14 @@ async fn main() -> Result<(), Error> {
 models and GPU are available. Use `Operator::open_unindexed` for outline, AST,
 literal/regex search and source reads without loading models; semantic search
 then returns an `index_missing` tool error. `Operator::from_config` accepts a
-programmatic `operator::Config`, and `Operator::serve_stdio` runs the MCP server
+programmatic `code_intelligence::Config`, and `Operator::serve_stdio` runs the MCP server
 from the same in-process state.
 
 The default feature set includes the TUI. Library-only consumers can drop the
 terminal dependencies:
 
 ```toml
-operator = { path = "..", default-features = false }
+code-intelligence = { version = "0.1.0", default-features = false }
 ```
 
 See [docs/library.md](docs/library.md) for the full API and error semantics.
@@ -76,7 +78,7 @@ See [docs/library.md](docs/library.md) for the full API and error semantics.
 
 ```bash
 cd my-repo
-operator init
+code-intelligence init
 ```
 
 `init` walks the workspace with ast-grep’s language detection, intersects the
@@ -97,8 +99,8 @@ selection, or `--all-supported` to select the full catalog. The selection is
 stored in `.operator.toml`; changing it changes the index identity.
 
 ```bash
-operator reindex          # build/refresh the index
-operator serve            # stdio MCP server
+code-intelligence reindex          # build/refresh the index
+code-intelligence serve            # stdio MCP server
 ```
 
 `init` also writes project-local host registrations (`.mcp.json`,
@@ -107,13 +109,13 @@ operator serve            # stdio MCP server
 
 ## Terminal UI
 
-On a TTY, `operator init` opens a five-tab TUI: **Sources** (languages + include/
+On a TTY, `code-intelligence init` opens a five-tab TUI: **Sources** (languages + include/
 exclude tree), **Index** (progress, freshness, file events), **Stats**,
-**Usage** (MCP tool calls and learn signals), and **Review**. `operator tui`
-reopens the dashboard; `operator reindex --tui` starts it on the Index tab.
+**Usage** (MCP tool calls and learn signals), and **Review**. `code-intelligence tui`
+reopens the dashboard; `code-intelligence reindex --tui` starts it on the Index tab.
 
 See [docs/tui.md](docs/tui.md) for keys and selection semantics. Non-TTY use
-`operator init --yes` (or pass `--languages`, `--include`, `--exclude`).
+`code-intelligence init --yes` (or pass `--languages`, `--include`, `--exclude`).
 
 ## MCP tools
 
@@ -122,10 +124,10 @@ See [docs/tui.md](docs/tui.md) for keys and selection semantics. Non-TTY use
 | `repo_map` | ast-grep outline: files, symbols, imports, exports; generic file entries where no outline rule exists. |
 | `search_code` | Indexed full-text (`fts`), literal substring, or regex search with path/language filters. |
 | `search_ast` | ast-grep pattern or YAML rule search; read-only (fix/rewrite rules are rejected). |
-| `search_semantic` | LanceDB dense + full-text fusion with optional rerank; requires `operator reindex`. |
+| `search_semantic` | LanceDB dense + full-text fusion with optional rerank; requires `code-intelligence reindex`. |
 | `read_source` | Exact line range of a workspace-contained file. |
 
-All results are bounded and read-only. Operator does not expose type-aware
+All results are bounded and read-only. Code-intelligence does not expose type-aware
 references, diagnostics, rename, or edits; use the host’s compiler/LSP for those.
 
 
@@ -148,13 +150,13 @@ references, diagnostics, rename, or edits; use the host’s compiler/LSP for tho
   offline.
 - **Explicit corpus identity.** Languages, include/exclude paths, chunker,
   embedder, backend and index settings are baked into the table name. Changing a
-  material input creates a new table and requires `operator reindex`; it never
+  material input creates a new table and requires `code-intelligence reindex`; it never
   silently mixes old and new vectors.
 - **Cheap-to-expensive ranking.** Dense and FTS candidates are fused, then the
   optional cross-encoder reranks only the fused pool. RRF is the default fusion;
   rerank pool 20 is the default cost/quality point.
 - **MCP plus library.** The binary owns setup/TUI and stdio MCP; the library
-  facade (`operator::Operator`) exposes the same read-only operations in-process.
+  facade (`code_intelligence::Operator`) exposes the same read-only operations in-process.
   The TUI is an optional default feature, so library consumers can omit it.
 - **Trust boundaries.** `read_source` and index discovery canonicalize paths and
   reject escapes; the learn journal stores hashed arguments and result shapes,
@@ -303,7 +305,7 @@ hashed arguments and result shapes. It does not see host-native tools or other
 MCP servers, and it never edits agent instructions.
 
 ```bash
-operator learn --json        # repeated calls, repeated errors, mismatches
+code-intelligence learn --json        # repeated calls, repeated errors, mismatches
 ```
 
 The report suggests wording or description changes; applying them is manual.
@@ -342,16 +344,16 @@ before anything downloads; see
 
 The index lives under `.cache/retrieval` and is keyed by the selected language
 set, chunker, embedder and backend, and include roots. Changing any of them
-requires `operator reindex`. Changing the embedder or backend changes the
+requires `code-intelligence reindex`. Changing the embedder or backend changes the
 index identity, so the first run after such a change reindexes.
 
 ## Development
 
 ```bash
 cargo check
-cargo nextest run --status-level fail -p operator
+cargo nextest run --status-level fail -p code-intelligence
 cargo clippy --all-targets
-cargo fmt -p operator
+cargo fmt -p code-intelligence
 ```
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md).

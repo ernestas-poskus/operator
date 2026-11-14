@@ -1,6 +1,6 @@
 # Retrieval backend: in-process fastembed on the GPU
 
-`operator` embeds chunks and reranks queries **in-process** through
+`code-intelligence` embeds chunks and reranks queries **in-process** through
 [fastembed](https://github.com/Anush008/fastembed-rs)'s candle backend. There is
 no HTTP model server and no runtime backend switch: the models run on the
 platform GPU and a missing GPU disables retrieval (the rest of the MCP server
@@ -24,7 +24,7 @@ default dtype (`retrieval_model_dtype = "f32"` is the numerical escape hatch).
 
 ## Model cache discovery
 
-Before downloading anything, `operator` probes these locations (first complete
+Before downloading anything, `code-intelligence` probes these locations (first complete
 snapshot wins; `models--<org>--<name>/snapshots/*{config.json,tokenizer.json,model.safetensors}`):
 
 1. `retrieval_model_cache_dir` (explicit config)
@@ -53,7 +53,7 @@ runs work offline from the cache.
 
 ## Failure behaviour
 
-- No GPU / no CUDA device: `operator serve` logs
+- No GPU / no CUDA device: `code-intelligence serve` logs
   `(retrieval: fastembed backend unavailable — …)` and serves without
   `search_semantic`.
 - Models missing and no network: the same line names the probed cache root and
@@ -124,8 +124,8 @@ roughly 0.9 s (30 candidates).
 
 ## Verification
 
-- `cargo check`, `cargo nextest run --status-level fail -p operator`,
-  `cargo clippy --all-targets`, `cargo fmt -p operator` on macOS.
+- `cargo check`, `cargo nextest run --status-level fail -p code-intelligence`,
+  `cargo clippy --all-targets`, `cargo fmt -p code-intelligence` on macOS.
 - CPU-generic model paths are covered by unit tests (the attention/custom-op
   fallbacks are device-generic), so Linux/Windows CUDA builds are compile- and
   unit-tested without a GPU.

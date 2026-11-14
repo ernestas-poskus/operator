@@ -1,7 +1,10 @@
 //! Bake the source revision into the binary for support/debuggability.
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rustc-env=OPERATOR_REVISION={}", git_revision());
+    println!(
+        "cargo:rustc-env=CODE_INTELLIGENCE_REVISION={}",
+        git_revision()
+    );
 }
 
 fn git_revision() -> String {

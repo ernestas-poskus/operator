@@ -14,7 +14,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use operator::{ConvertedDocument, DocumentEngine, FallbackPolicy, convert_document};
+use code_intelligence::{ConvertedDocument, DocumentEngine, FallbackPolicy, convert_document};
 
 struct Entry {
     id: String,
@@ -58,7 +58,7 @@ fn row(
     fallback: FallbackPolicy,
     rep: i32,
     ns: u128,
-    result: &Result<ConvertedDocument, operator::DocError>,
+    result: &Result<ConvertedDocument, code_intelligence::DocError>,
 ) -> String {
     let (ok, used, fell_back, reason, bytes, err) = match result {
         Ok(converted) => (
@@ -151,7 +151,7 @@ async fn main() {
     for rep in -warmup..reps {
         for entry in &entries {
             let started = Instant::now();
-            let result: Result<ConvertedDocument, operator::DocError> =
+            let result: Result<ConvertedDocument, code_intelligence::DocError> =
                 convert_document(&entry.path, engine, fallback).await;
             let ns = started.elapsed().as_nanos();
             if rep == 0

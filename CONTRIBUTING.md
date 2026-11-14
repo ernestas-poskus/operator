@@ -36,12 +36,12 @@ Work in a branch, preferably in a dedicated git worktree, with one branch per
 change:
 
 ```bash
-git worktree add -b <branch> /tmp/operator-<task> main
-cd /tmp/operator-<task>
+git worktree add -b <branch> /tmp/code-intel-<task> main
+cd /tmp/code-intel-<task>
 # ... make the change, run the checks above ...
 git checkout main
 git merge --ff-only <branch>
-git worktree remove /tmp/operator-<task>
+git worktree remove /tmp/code-intel-<task>
 git branch -d <branch>
 ```
 

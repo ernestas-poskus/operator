@@ -1,12 +1,12 @@
 # Library API
 
-`operator` is both a binary and a library. The library facade is
-[`operator::Operator`](../src/api.rs); it owns a workspace configuration and an
+`code-intelligence` is both a binary and a library. The library facade is
+[`code_intelligence::Operator`](../src/api.rs); it owns a workspace configuration and an
 optional local index and exposes the same read-only operations as the MCP
 server.
 
 ```rust,no_run
-use operator::{
+use code_intelligence::{
     Config, Error, LanguageId, Limit, LineNumber, Operator, QueryText, RepoPath,
 };
 
@@ -88,7 +88,7 @@ MCP tool-input schemas are unchanged: the typing is compile-time only.
 
 ## Errors
 
-`operator::Error` distinguishes configuration (`Config`), I/O (`Io`), JSON
+`code_intelligence::Error` distinguishes configuration (`Config`), I/O (`Io`), JSON
 (`Json`) and tool/index failures (`Tool`). Tool methods return the same
 read-only error strings the MCP tool results carry, wrapped in `Error::Tool`.
 
@@ -98,8 +98,8 @@ The default `tui` feature brings `ratatui`, `crossterm` and `notify` for the
 init/dashboard. Disable it for a smaller library or headless binary:
 
 ```toml
-operator = { path = "..", default-features = false }
+code-intelligence = { version = "0.1.0", default-features = false }
 ```
 
-The binary remains available either way; without `tui`, `operator tui` is not a
+The binary remains available either way; without `tui`, `code-intelligence tui` is not a
 subcommand and `init --tui` / `reindex --tui` return a configuration error.

@@ -1,5 +1,5 @@
 //! The in-process library API must work without a GPU, model download, or MCP host.
-use operator::{
+use code_intelligence::{
     Config, Error, LanguageId, Limit, LineNumber, Operator, PatternText, QueryText, RepoPath,
     SchemaVersion, WorkspaceConfig, detect_languages,
 };

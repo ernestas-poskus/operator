@@ -20,10 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `search_ast`, `search_semantic` and `read_source` over stdio.
 - In-process indexing and hybrid retrieval built on ast-grep, LanceDB and
   fastembed/candle, with no HTTP model server.
-- `operator init`, `serve`, `reindex`, `tui` and `learn` commands.
+- `code-intelligence init`, `serve`, `reindex`, `tui` and `learn` commands.
 - Interactive init/dashboard TUI with language selection, include/exclude
   paths, index progress, freshness, stats, MCP tool usage and file events.
-- `operator::Operator` library facade for in-process code intelligence.
+- `code_intelligence::Operator` library facade for in-process code intelligence.
 - Optional `tui` feature; `--no-default-features` builds a lean library and
   headless binary.
 - Newtype wrappers for the crate's domain primitives (language ids, repo
@@ -55,6 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including one still overrides the ignore for that path.
 
 - Interactive CLI prompts use [`demand`](https://github.com/jdx/demand); the
-  `dialoguer` dependency is gone. `operator init`'s language picker is
+  `dialoguer` dependency is gone. `code-intelligence init`'s language picker is
   filterable, requires at least one selection, and returns typed
   `LanguageId` values instead of indexes.

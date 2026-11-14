@@ -7,8 +7,8 @@ design decision.
 ## Workflow
 
 - Work in a dedicated git worktree; merge with `--ff-only` and remove it.
-- Run `cargo check`, scoped `cargo nextest run --status-level fail -p operator`,
-  `cargo clippy --all-targets`, and `cargo fmt -p operator`.
+- Run `cargo check`, scoped `cargo nextest run --status-level fail -p code-intelligence`,
+  `cargo clippy --all-targets`, and `cargo fmt -p code-intelligence`.
 - Use `type(component): intent` commit messages. Do not add co-author trailers.
 - Search with `rg`; read only the needed range. Keep tool/result records
   backward tolerant and never log source contents to the learn journal by

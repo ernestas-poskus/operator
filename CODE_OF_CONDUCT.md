@@ -62,7 +62,7 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainer through their GitHub profile at
 <https://github.com/ernestas-poskus>. For reports that must stay private, use
 the repository's GitHub Security Advisories at
-<https://github.com/ernestas-poskus/operator/security/advisories/new> instead of
+<https://github.com/ernestas-poskus/code-intelligence/security/advisories/new> instead of
 a public issue.
 
 All complaints will be reviewed and investigated promptly and fairly. All

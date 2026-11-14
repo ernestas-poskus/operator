@@ -9,6 +9,6 @@ capability contract, not a hand-written extension table.
 
 Dart is included in the ast-grep `builtin-parser` feature set.
 
-`operator init` detects and intersects; only selected languages are indexed or
+`code-intelligence init` detects and intersects; only selected languages are indexed or
 searchable. There is no LSP process and no compiler-grade reference/type
-semantics in operator.
+semantics in code-intelligence.

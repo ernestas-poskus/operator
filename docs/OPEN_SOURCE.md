@@ -1,7 +1,6 @@
 # Open-source release notes
 
-`operator` is released as public source under the MIT license. The immediate
-distribution target is GitHub; crates.io is deliberately deferred.
+`code-intelligence` is released as public source under the MIT license.
 
 ## Source snapshot
 
@@ -18,18 +17,14 @@ runtime state, host MCP registrations, credentials, or caches.
 4. Confirm the secret/path audit in the release checklist has no findings.
 5. Tag the release and publish the GitHub source archive.
 
-## crates.io later
+## Publishing to crates.io
 
-The crate name `operator` is already taken on crates.io. A future release needs:
+The package is named `code-intelligence` with library crate `code_intelligence`
+and binary `code-intelligence`.
 
-1. A new package name (for example `operator-code-intel`) while keeping the
-   binary target named `operator`.
-2. Publish `crates/crate-map` separately, or fold it into the package and remove
-   the path dependency.
-3. Give the dependency a version in addition to its path.
-4. Run `cargo publish --dry-run` and review `cargo package --list`.
-
-Do not flip `publish = false` until those steps are complete.
+1. Publish `crates/crate-map` first (`cargo publish` from `crates/crate-map`).
+2. Run `cargo publish --dry-run` and review `cargo package --list`.
+3. Publish `code-intelligence` (`cargo publish`).
 
 ## History
 

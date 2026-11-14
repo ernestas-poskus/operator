@@ -1,6 +1,6 @@
 # Tool catalog
 
-Operator exposes five read-only MCP tools over stdio. There are no plan,
+Code-intelligence exposes five read-only MCP tools over stdio. There are no plan,
 research, web, LSP, stats, replay, or schema tools.
 
 ## `repo_map`
@@ -32,7 +32,7 @@ errors are returned as tool errors with the source path.
 Inputs: `query`, `path?`, `language?`, `limit?`.
 
 Hybrid dense + full-text retrieval through the existing LanceDB index and the
-in-process fastembed embedder/reranker. Requires `operator reindex`; missing
+in-process fastembed embedder/reranker. Requires `code-intelligence reindex`; missing
 index is an explicit error, never an empty result. Results carry path/line/score.
 
 ## `read_source`

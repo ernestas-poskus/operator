@@ -15,7 +15,7 @@ builds are not supported.
 Do not open a public issue for a security problem. Report it privately through
 GitHub Security Advisories:
 
-<https://github.com/ernestas-poskus/operator/security/advisories/new>
+<https://github.com/ernestas-poskus/code-intelligence/security/advisories/new>
 
 Include the affected version or commit, the impact, reproduction steps, and any
 suggested fix. The maintainer will confirm receipt, investigate, and coordinate

@@ -1,6 +1,6 @@
 # Document conversion router
 
-`operator` converts office documents and text PDFs to Markdown when the opt-in
+`code-intelligence` converts office documents and text PDFs to Markdown when the opt-in
 document corpus is indexed (`retrieval_documents`). Two in-process engines are
 compiled in and a measured table decides which one converts each format.
 
@@ -76,7 +76,7 @@ matches the shipped profile.
 ## Cost
 
 Measured on the snapshot's host (Apple M4 Max, 16 cores), cold `cargo build
---release --bin operator` with the same profile on both sides:
+--release --bin code-intelligence` with the same profile on both sides:
 
 | | before (anydoc only) | after (both engines) | delta |
 |---|---|---|---|

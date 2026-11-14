@@ -1,8 +1,8 @@
 # Terminal UI
 
-`operator init` opens a ratatui dashboard on a TTY. The TUI is the default
-`tui` feature; builds with `--no-default-features` omit it and reject `--tui`. `operator tui` reopens it for
-a configured workspace; `operator reindex --tui` opens it on the Index tab.
+`code-intelligence init` opens a ratatui dashboard on a TTY. The TUI is the default
+`tui` feature; builds with `--no-default-features` omit it and reject `--tui`. `code-intelligence tui` reopens it for
+a configured workspace; `code-intelligence reindex --tui` opens it on the Index tab.
 
 ## Tabs
 
@@ -11,7 +11,7 @@ a configured workspace; `operator reindex --tui` opens it on the Index tab.
 | **Sources** | Language checklist and workspace tree. Select languages; mark files/directories Include, Exclude, or Inherit. Sources matched by `.gitignore` render in a dimmed, collapsed, unchecked section at the bottom of the tree; expanding and including one overrides the ignore for that path. |
 | **Index** | Index identity, freshness, progress and a live event log. While the TUI owns the terminal, index diagnostics are routed to this panel instead of stderr, so switching back to Sources never leaves log lines on the screen. |
 | **Stats** | Corpus, chunk, row and freshness summary. |
-| **Usage** | Operator MCP calls, latency, errors and learn signals from the local journal. |
+| **Usage** | Code-intelligence MCP calls, latency, errors and learn signals from the local journal. |
 | **Review** | Config diff and save/apply actions. |
 
 ## Keys
@@ -49,7 +49,7 @@ retrieval_exclude = ["tests/fixtures"]
 ```
 
 Changing languages, includes, or excludes changes the index identity; run
-`operator reindex` (or press `r` in the TUI).
+`code-intelligence reindex` (or press `r` in the TUI).
 
 ## Progress, freshness and tool usage
 
@@ -58,6 +58,6 @@ insert, manifest and done. The Index tab also shows fresh/stale file counts and
 the manifest's last write time.
 
 Usage is read from `~/.local/state/operator/<repo-hash>/journal` and covers
-only operator's own MCP calls; it cannot see host-native tools or other MCP
+only code-intelligence's own MCP calls; it cannot see host-native tools or other MCP
 servers. File events come from a local watcher and never trigger an automatic
 reindex — press `r` to pay for embeddings.

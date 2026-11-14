@@ -5,7 +5,10 @@ edition = "2024"
 rust-version = "1.95"
 description = "Cargo workspace/crate structure detection: manifests, crate boundaries, module trees, and a deterministic CRATE MAP (filesystem policy supplied by the caller)."
 license = "MIT"
-publish = false
+repository = "https://github.com/ernestas-poskus/code-intelligence"
+homepage = "https://github.com/ernestas-poskus/code-intelligence"
+readme = "README.md"
+publish = true
 
 [dependencies]
 toml = "1.1"

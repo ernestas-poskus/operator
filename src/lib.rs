@@ -1,8 +1,8 @@
-//! `operator`: a read-only code-intelligence library and MCP server.
+//! `code-intelligence`: a read-only code-intelligence library and MCP server.
 //!
 //! The binary keeps the CLI and optional TUI; library callers use
 //! [`Operator`] for in-process outline, AST, lexical/semantic search and source
-//! reads. `operator::Config`/`WorkspaceConfig` describe a workspace, and
+//! reads. `code_intelligence::Config`/`WorkspaceConfig` describe a workspace, and
 //! `Operator::serve_stdio` publishes the same five tools over MCP.
 pub mod api;
 mod ast_grep;

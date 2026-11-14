@@ -1,6 +1,6 @@
 # Third-party notices
 
-`operator` is distributed under the MIT license; see [LICENSE](LICENSE).
+`code-intelligence` is distributed under the MIT license; see [LICENSE](LICENSE).
 
 This repository does not vendor third-party source code. Runtime and build
 dependencies are resolved from crates.io and remain under their own licenses;

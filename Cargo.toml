@@ -1,28 +1,25 @@
 [package]
-name = "operator"
+name = "code-intelligence"
 version = "0.1.0"
 edition = "2024"
 description = "Read-only code-intelligence library and MCP server for coding agents, built on ast-grep, LanceDB, and full-text search."
 authors = ["Ernestas Poskus"]
 license = "MIT"
-repository = "https://github.com/ernestas-poskus/operator"
-homepage = "https://github.com/ernestas-poskus/operator"
+repository = "https://github.com/ernestas-poskus/code-intelligence"
+homepage = "https://github.com/ernestas-poskus/code-intelligence"
 readme = "README.md"
 keywords = ["agent", "coding-agent", "mcp", "ast-grep", "code-search"]
 categories = ["command-line-utilities", "development-tools"]
 rust-version = "1.95"
-# The crates.io name `operator` belongs to an unrelated crate; this project is
-# installed from source (`cargo install --path .`), not published.
-publish = false
+publish = true
 
-# The installed binary is `operator` (docs and AGENTS.md reference
-# ~/.cargo/bin/operator).
+# Library crate
 [lib]
-name = "operator"
+name = "code_intelligence"
 path = "src/lib.rs"
 
 [[bin]]
-name = "operator"
+name = "code-intelligence"
 path = "src/main.rs"
 
 [features]
@@ -44,7 +41,7 @@ async-trait = "0.1"
 anydoc = "=0.2.4"
 arrow-array = "58"
 arrow-schema = "58"
-crate-map = { path = "crates/crate-map" }
+crate-map = { version = "0.1.0", path = "crates/crate-map" }
 crossterm = { version = "0.29", optional = true }
 notify = { version = "8", optional = true }
 ratatui = { version = "0.30", optional = true }

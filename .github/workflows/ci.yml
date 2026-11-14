@@ -20,15 +20,15 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: 1
         run: brew install protobuf
       - name: Format
-        run: cargo fmt -p operator -- --check
+        run: cargo fmt -p code-intelligence -- --check
       - name: Check
         run: cargo check --locked
       - name: Check without TUI
         run: cargo check --locked --no-default-features --all-targets
       - name: Test
-        run: cargo nextest run --status-level fail -p operator
+        run: cargo nextest run --status-level fail -p code-intelligence
       - name: Test without TUI
-        run: cargo nextest run --no-default-features -p operator --status-level fail
+        run: cargo nextest run --no-default-features -p code-intelligence --status-level fail
       - name: Clippy
         run: cargo clippy --all-targets
       - name: Docs

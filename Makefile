@@ -1,4 +1,4 @@
-# operator developer targets.
+# code-intelligence developer targets.
 .DEFAULT_GOAL := help
 CARGO ?= cargo
 
@@ -17,10 +17,10 @@ check-lib:
 	$(CARGO) check --locked --no-default-features --all-targets
 
 test:
-	$(CARGO) nextest run --status-level fail -p operator
+	$(CARGO) nextest run --status-level fail -p code-intelligence
 
 fmt:
-	$(CARGO) fmt -p operator
+	$(CARGO) fmt -p code-intelligence
 
 clippy:
 	$(CARGO) clippy --all-targets
