@@ -50,7 +50,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+          sudo apt-get install -y protobuf-compiler nvidia-cuda-toolkit
 
       - name: Build binary (release)
         run: cargo build --release --locked --bin code-intelligence --target ${{ matrix.target }}
