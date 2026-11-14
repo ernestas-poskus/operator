@@ -18,9 +18,13 @@ cargo install --path . --locked
 Requirements:
 
 - Rust 1.95+.
+- The Protocol Buffers compiler (`protoc`) at build time. The `lance` crates
+  generate their protobuf bindings during the build; install it with
+  `brew install protobuf` on macOS or `apt-get install protobuf-compiler` on
+  Debian/Ubuntu.
 - A GPU for retrieval: Metal on macOS (Apple silicon), NVIDIA CUDA on Linux and
-  Windows (builds on Linux/Windows need the CUDA toolkit; macOS needs no extra
-  toolchain). The semantic search tool degrades to unavailable when the GPU or
+  Windows (builds on Linux/Windows need the CUDA toolkit; macOS needs no CUDA
+  toolkit). The semantic search tool degrades to unavailable when the GPU or
   the models are missing; `search_code`, `search_ast`, `repo_map`, and
   `read_source` still work.
 - The embedded models below (downloaded once into the model cache, ~2.5 GB).

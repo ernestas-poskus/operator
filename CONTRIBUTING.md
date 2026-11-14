@@ -3,6 +3,9 @@
 ## Prerequisites
 
 - Rust 1.95 or newer (the package uses edition 2024).
+- The Protocol Buffers compiler (`protoc`) for the `lance` build scripts:
+  `brew install protobuf` on macOS or `apt-get install protobuf-compiler` on
+  Debian/Ubuntu. CI installs it before building.
 - `cargo-nextest` for the test commands below:
   `cargo install cargo-nextest --locked`.
 - A GPU and the fastembed model cache for live semantic-search tests. The

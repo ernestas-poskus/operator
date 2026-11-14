@@ -13,6 +13,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
+      # lance's build scripts generate protobuf bindings with protoc, and
+      # lancedb does not enable lance's vendored-protoc feature.
+      - name: Install protoc
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: brew install protobuf
       - name: Format
         run: cargo fmt -p operator -- --check
       - name: Check
