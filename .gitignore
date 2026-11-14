@@ -6,7 +6,6 @@ crates/*/target/
 *.log
 
 /.cache
-/.fastembed_cache
 # `code-intelligence serve` runtime marker directory (server state, never committed).
 /.code-intelligence/
 /.code-intelligence.toml

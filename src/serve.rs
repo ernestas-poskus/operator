@@ -30,7 +30,6 @@ pub async fn run(args: ServeArgs) -> Result<()> {
             "serve",
         );
     }
-    crate::fastembed::prepare_cache(&cfg);
     let index = crate::code_search::LocalCodeIndex::build(&cfg).await;
     let state = Arc::new(crate::tools::ToolState {
         journal: crate::learn::Journal::open(&workspace),

@@ -9,7 +9,6 @@
 //! snapshots loaded from the first complete cache [`crate::model_cache`] finds,
 //! or downloaded into the configured cache directory when none exists.
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use candle_core::{DType, Device};
@@ -108,15 +107,6 @@ pub fn embedder_label(cfg: &Config) -> String {
     format!("fastembed:{repo}:{impl_tag}").replace(['/', ':'], "-")
 }
 
-/// Resolve the model cache root for this configuration and pin it for the
-/// process. Called before the index build.
-pub fn prepare_cache(cfg: &Config) -> PathBuf {
-    let embed = embed_repo(cfg).unwrap_or_else(|_| cfg.retrieval_embed_model.clone().into_inner());
-    let rerank =
-        rerank_repo(cfg).unwrap_or_else(|_| cfg.retrieval_rerank_model.clone().into_inner());
-    crate::model_cache::resolve_and_pin(cfg, &[embed, rerank])
-}
-
 /// One loaded embedder from either fastembed candle loader.
 enum LoadedEmbedder {
     Bert(Box<BertTextEmbedding>),
@@ -168,6 +158,10 @@ impl FastembedModels {
     pub fn build(cfg: &Config) -> Result<Self, String> {
         let embed_repo = embed_repo(cfg)?;
         let rerank_repo = rerank_repo(cfg)?;
+        // Pin the resolved cache before any loader runs. fastembed otherwise
+        // falls back to a cwd-relative `.fastembed_cache`, which would create a
+        // second cache next to the workspace's `.cache`.
+        crate::model_cache::resolve_and_pin(cfg, &[embed_repo.clone(), rerank_repo.clone()]);
         let device = platform_device()?;
         let dtype = match cfg.retrieval_model_dtype {
             ModelDtype::F16 => DType::F16,

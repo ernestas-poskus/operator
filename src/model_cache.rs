@@ -6,7 +6,12 @@
 //! root. This module probes the common locations where such a cache may already
 //! exist (macOS, Linux, Windows conventions included), picks the first root that
 //! holds a complete snapshot of every required repo, and pins that root for the
-//! process so the loaders use it deterministically.
+//! process before any loader runs, so fastembed never falls back to a workspace.
+//!
+//! Every root we probe and create lives under a `.cache` directory:
+//! `~/.cache/fastembed` for the shared per-user cache, or
+//! `<retrieval_cache_dir>/models` (inside the workspace `.cache`) when no home
+//! directory is known. There is no separate `.fastembed_cache` location.
 //!
 //! When nothing is cached the models are downloaded into the **shared per-user
 //! cache** — `~/.cache/fastembed`, or the native Hugging Face cache when
@@ -53,7 +58,6 @@ pub fn candidate_roots(cfg: &Config) -> Vec<PathBuf> {
         push(home.join(".cache/huggingface/hub"));
         push(home.join(".cache/huggingface"));
         push(home.join(".cache/fastembed"));
-        push(home.join(".fastembed_cache"));
     }
     if let Some(appdata) = std::env::var_os("LOCALAPPDATA") {
         let appdata = PathBuf::from(appdata);
@@ -65,9 +69,7 @@ pub fn candidate_roots(cfg: &Config) -> Vec<PathBuf> {
         push(userprofile.join(".cache/huggingface/hub"));
         push(userprofile.join(".cache/huggingface"));
         push(userprofile.join(".cache/fastembed"));
-        push(userprofile.join(".fastembed_cache"));
     }
-    push(cfg.workspace_root.join(".fastembed_cache"));
     // The shared per-user directory a download may create. It is also probed
     // above when it already exists, so a previous download keeps its position
     // in the list; `resolve` falls back here only when nothing is complete.
@@ -248,6 +250,14 @@ mod tests {
         assert!(
             roots.contains(&super::download_root(&cfg)),
             "the download target must be probeable so a previous download is reused"
+        );
+        assert!(
+            !roots.iter().any(|root| root.ends_with(".fastembed_cache")),
+            "a separate .fastembed_cache root must never be probed: {roots:?}"
+        );
+        assert!(
+            !roots.contains(&cfg.workspace_root.join(".fastembed_cache")),
+            "the workspace must not offer a .fastembed_cache root: {roots:?}"
         );
         cfg.retrieval_model_cache_dir = Some(PathBuf::from("/explicit/cache").into());
         assert_eq!(

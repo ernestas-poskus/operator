@@ -33,17 +33,19 @@ snapshot wins; `models--<org>--<name>/snapshots/*{config.json,tokenizer.json,mod
 4. `HF_HOME`, then `HF_HOME/hub`
 5. `XDG_CACHE_HOME/huggingface[/hub]`
 6. `~/.cache/huggingface[/hub]`
-7. `~/.cache/fastembed`, `~/.fastembed_cache`
-8. `<workspace>/.fastembed_cache`
-9. `~/.cache/fastembed`, `XDG_CACHE_HOME/fastembed` (the download target)
-10. `<workspace>/.fastembed_cache`
-11. `<retrieval_cache_dir>/models` (workspace fallback only when no home is known)
+7. `~/.cache/fastembed`, `XDG_CACHE_HOME/fastembed` (the download target)
+8. `<retrieval_cache_dir>/models` (workspace fallback only when no home is known)
+
+Every probed and created root is a `.cache` path; there is no separate
+`.fastembed_cache` location.
 
 When no complete snapshot exists, models are downloaded into the **shared
 per-user cache** — `retrieval_model_cache_dir` if set, else
 `HF_HOME/hub` or `HF_HUB_CACHE` when configured, else
-`XDG_CACHE_HOME/fastembed`, else `~/.cache/fastembed`. A workspace never owns
-the weights: every repository on the machine reuses the same ~2.5 GB snapshot.
+`XDG_CACHE_HOME/fastembed`, else `~/.cache/fastembed`. A workspace normally
+does not own the weights: every repository on the machine reuses the same
+~2.5 GB snapshot; the `<retrieval_cache_dir>/models` fallback is only for hosts
+with no home directory.
 
 The selected root is pinned for the process (`HF_HOME` and
 `FASTEMBED_CACHE_DIR` are set to it, because fastembed checks `HF_HOME` first).

@@ -65,3 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dialoguer` dependency is gone. `code-intelligence init`'s language picker is
   filterable, requires at least one selection, and returns typed
   `LanguageId` values instead of indexes.
+
+### Fixed
+
+- Model loading no longer creates a second `.fastembed_cache` directory next to
+  the workspace `.cache`: the resolved model cache is pinned before any
+  fastembed loader runs, and only `.cache` roots are probed.

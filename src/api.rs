@@ -95,7 +95,6 @@ impl Operator {
     pub async fn from_config(cfg: Config) -> Result<Self> {
         let cfg = canonical_config(cfg)?;
         crate::serve::validate(&cfg)?;
-        crate::fastembed::prepare_cache(&cfg);
         let index = LocalCodeIndex::build(&cfg).await;
         Ok(Self {
             state: Arc::new(ToolState {
