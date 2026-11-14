@@ -7,6 +7,79 @@ AST search, full-text search, hybrid semantic search, and bounded source reads.
 
 No planner, no reviewer loop, no web research, no LSP process, no code edits.
 
+## Architecture & Process Flow
+
+```mermaid
+flowchart TD
+    subgraph Clients["MCP Hosts & Consumers"]
+        Claude["Claude Code (.mcp.json)"]
+        Gemini["Gemini CLI (.gemini/settings.json)"]
+        Codex["Codex CLI (.codex/config.toml)"]
+        Cursor["Cursor (.cursor/mcp.json)"]
+        Agy["Antigravity CLI (.agents/mcp_config.json)"]
+        LibConsumer["Rust Library Consumer (code_intelligence::Operator)"]
+    end
+
+    subgraph Entrypoints["CLI & MCP Dispatch"]
+        Init["init (Discovery & Configuration)"]
+        Serve["serve (Stdio MCP Server)"]
+        Reindex["reindex (Index Building)"]
+        TUI["tui (Interactive Dashboard)"]
+        MCPDispatch["CodeIntelligenceMcpServer (Stdio JSON-RPC)"]
+    end
+
+    subgraph WorkspaceState["Workspace & Local Configuration"]
+        Config[".operator.toml (Languages, Includes, Excludes)"]
+        HostFiles["Auto-registered Host Configuration Files"]
+        Journal["Local Journal ~/.local/state/operator/"]
+    end
+
+    subgraph Tools["Read-Only Tools (tools.rs)"]
+        T1["repo_map: ast-grep outline, symbols, exports"]
+        T2["search_code: FTS, literal, or regex search"]
+        T3["search_ast: structural AST pattern & rules"]
+        T4["search_semantic: dense + FTS hybrid search"]
+        T5["read_source: bounded line range reader"]
+    end
+
+    subgraph ProcessingEngines["Engines & In-Process Pipelines"]
+        AstGrep["ast-grep Engine (Outline & Structural AST)"]
+        DocRouter["Document Engine Router (anydoc / xberg fallback)"]
+        Chunker["Symbol & Sliding Window Chunker + Context Enrichment"]
+        LanceDB["LanceDB Table (.cache/retrieval/)"]
+        FastEmbed["fastembed / Candle GPU (Embedder + Cross-Encoder Reranker)"]
+    end
+
+    %% Connections
+    Claude & Gemini & Codex & Cursor & Agy -->|stdio JSON-RPC| Serve
+    Init -->|write config| Config
+    Init -->|reconcile/merge| HostFiles
+    Serve --> MCPDispatch
+    TUI --> Serve
+    Reindex --> Chunker
+    LibConsumer -->|In-Process API| T1 & T2 & T3 & T4 & T5
+
+    MCPDispatch --> T1 & T2 & T3 & T4 & T5
+
+    %% Tool to engine mapping
+    T1 --> AstGrep
+    T3 --> AstGrep
+    T5 -->|safe workspace path check| WorkspaceState
+    T2 --> LanceDB
+    T4 --> FastEmbed
+    T4 --> LanceDB
+
+    %% Index pipeline
+    WorkspaceState -.->|scan sources & docs| DocRouter
+    DocRouter -->|converted markdown| Chunker
+    Chunker -->|dense vectors| FastEmbed
+    Chunker -->|chunks + FTS tokens| LanceDB
+    FastEmbed -->|rerank candidates| T4
+
+    %% Journal logging
+    T1 & T2 & T3 & T4 & T5 -.->|metrics & diagnostics| Journal
+```
+
 ## Install
 
 ```bash
