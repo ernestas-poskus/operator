@@ -267,7 +267,7 @@ mod tests {
         cfg.retrieval_model_cache_dir = None;
         let root = super::download_root(&cfg);
         // Explicit configuration always wins and is the only workspace-local
-        // target an operator can opt into.
+        // target a workspace can opt into.
         cfg.retrieval_model_cache_dir = Some(PathBuf::from("/explicit/cache").into());
         assert_eq!(super::download_root(&cfg), PathBuf::from("/explicit/cache"));
 

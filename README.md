@@ -29,9 +29,9 @@ flowchart TD
     end
 
     subgraph WorkspaceState["Workspace & Local Configuration"]
-        Config[".operator.toml (Languages, Includes, Excludes)"]
+        Config[".code-intelligence.toml (Languages, Includes, Excludes)"]
         HostFiles["Auto-registered Host Configuration Files"]
-        Journal["Local Journal ~/.local/state/operator/"]
+        Journal["Local Journal ~/.local/state/code-intelligence/"]
     end
 
     subgraph Tools["Read-Only Tools (tools.rs)"]
@@ -131,7 +131,7 @@ async fn main() -> Result<(), Error> {
 }
 ```
 
-`Operator::open` loads `.operator.toml` and builds the index when the local
+`Operator::open` loads `.code-intelligence.toml` and builds the index when the local
 models and GPU are available. Use `Operator::open_unindexed` for outline, AST,
 literal/regex search and source reads without loading models; semantic search
 then returns an `index_missing` tool error. `Operator::from_config` accepts a
@@ -169,7 +169,7 @@ Detected:
 
 Use `--yes` for detected defaults, `--languages rust,go,dart` for an explicit
 selection, or `--all-supported` to select the full catalog. The selection is
-stored in `.operator.toml`; changing it changes the index identity.
+stored in `.code-intelligence.toml`; changing it changes the index identity.
 
 ```bash
 code-intelligence reindex          # build/refresh the index
@@ -178,7 +178,9 @@ code-intelligence serve            # stdio MCP server
 
 `init` also writes project-local host registrations (`.mcp.json`,
 `.gemini/settings.json`, `.codex/config.toml`, `.cursor/mcp.json`,
-`.agents/mcp_config.json`). `serve --no-register` skips that.
+`.agents/mcp_config.json`). Each file gets one `code-intelligence` entry, and
+reconciling removes the retired `operator` entry. `serve --no-register` skips
+that.
 
 ## Terminal UI
 
@@ -373,7 +375,7 @@ participates in full-text and semantic search.
 
 ## Learn from tool usage
 
-`serve` journals its own MCP calls locally (`~/.local/state/operator`) with
+`serve` journals its own MCP calls locally (`~/.local/state/code-intelligence`) with
 hashed arguments and result shapes. It does not see host-native tools or other
 MCP servers, and it never edits agent instructions.
 
@@ -385,7 +387,7 @@ The report suggests wording or description changes; applying them is manual.
 
 ## Configuration
 
-`.operator.toml` is written by `init` and holds only the selected languages and
+`.code-intelligence.toml` is written by `init` and holds only the selected languages and
 retrieval settings:
 
 ```toml

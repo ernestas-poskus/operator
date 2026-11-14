@@ -109,8 +109,12 @@ pub async fn run(args: InitArgs) -> Result<()> {
         retrieval_document_engine: None,
         retrieval_document_fallback: None,
     };
-    if WorkspaceConfig::path_for(&workspace).exists() && !args.force {
-        let existing = WorkspaceConfig::load(&workspace)?.unwrap_or_default();
+    let existing = if args.force {
+        None
+    } else {
+        WorkspaceConfig::load(&workspace)?
+    };
+    if let Some(existing) = existing {
         let mut merged = existing;
         merged.schema_version = Some(SchemaVersion::new(3));
         merged.languages = Some(selected.clone());
@@ -130,9 +134,9 @@ pub async fn run(args: InitArgs) -> Result<()> {
     let mode = if args.force {
         mcp_register::Mode::ReplaceFile
     } else {
-        mcp_register::Mode::CreateOnly
+        mcp_register::Mode::Reconcile
     };
-    mcp_register::register_operator(&workspace, &transport, mode, "init")?;
+    mcp_register::register_hosts(&workspace, &transport, mode, "init")?;
     println!(
         "init: selected {} language(s): {}",
         selected.len(),

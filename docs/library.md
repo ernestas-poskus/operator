@@ -12,7 +12,7 @@ use code_intelligence::{
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // A configured workspace: loads `.operator.toml`, validates it and tries
+    // A configured workspace: loads `.code-intelligence.toml`, validates it and tries
     // to build the local retrieval index.
     let op = Operator::open(".").await?;
 
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Error> {
 | `Operator::from_config(cfg)` | built when available | prepared |
 | `Operator::from_config_unindexed(cfg)` | none | untouched |
 
-`open` and `open_unindexed` load `.operator.toml`; `from_config` accepts a
+`open` and `open_unindexed` load `.code-intelligence.toml`; `from_config` accepts a
 programmatic [`Config`] for callers that do not use the CLI setup. `open`
 requires a Tokio runtime; the `unindexed` constructors and the sync tools do
 not.
@@ -83,7 +83,7 @@ primitives — `LanguageId`, `RepoPath`, `SourceText`, `LineNumber`, `FileCount`
 `usize`, `f32` or `PathBuf`. They convert explicitly (`LanguageId::parse`,
 `.get()`, `.as_str()`) or implicitly (`From`/`Into`), and compare against their
 inner primitive (`count == 1`, `line > 0`). Every wrapper is
-`serde(transparent)` and `schemars(inline)`, so the JSON, `.operator.toml` and
+`serde(transparent)` and `schemars(inline)`, so the JSON, `.code-intelligence.toml` and
 MCP tool-input schemas are unchanged: the typing is compile-time only.
 
 ## Errors

@@ -1,23 +1,25 @@
-//! Project-local MCP host registrations for the `operator` server.
+//! Project-local MCP host registrations for the `code-intelligence` server.
 //!
 //! Five hosts read a project-local file: Claude Code's `.mcp.json`, Gemini
 //! CLI's `.gemini/settings.json`, Codex CLI's `.codex/config.toml`, Cursor's
 //! `.cursor/mcp.json`, and Antigravity CLI's (Agy's) `.agents/mcp_config.json`.
-//! This module writes exactly one entry in each — the `operator` server — and
-//! **merges** rather than replaces: every other server, setting and TOML comment
-//! in the file survives untouched.
+//! This module writes exactly one entry in each — the `code-intelligence`
+//! server — and **merges** rather than replaces: every other server, setting and
+//! TOML comment in the file survives untouched.
 //!
 //! Two transports reach the same server:
 //!
-//! - [`Transport::Stdio`] launches `operator serve …`, which attaches to a live
-//!   instance when `.operator/serve.json` names one (see [`crate::mcp_attach`]);
+//! - [`Transport::Stdio`] launches `code-intelligence serve …`, which attaches
+//!   to a live instance when `.code-intelligence/serve.json` names one (see
+//!   [`crate::mcp_attach`]);
 //! - [`Transport::Http`] points the host at a running instance's Streamable
 //!   HTTP endpoint, so the host skips the child process entirely.
 //!
-//! `operator init` creates the files when absent ([`Mode::CreateOnly`]);
-//! `operator serve` reconciles its entry on every start
-//! ([`Mode::Reconcile`]), which is how a running instance comes to be what the
-//! host files name.
+//! `code-intelligence init` reconciles the files on setup; `code-intelligence
+//! serve` reconciles its entry on every start ([`Mode::Reconcile`]), which is
+//! how a running instance comes to be what the host files name. Entries written
+//! under the pre-rename `operator` name are removed while reconciling so hosts
+//! stop launching a binary that no longer exists.
 //!
 //! Writes are atomic (temp file plus rename), so a host reading the file while
 //! `serve` reconciles it never sees a half-written document.
@@ -27,11 +29,11 @@ use crate::error::{Error, Result};
 use crate::types::{Argv, HostFile, UpdatedAt};
 use std::path::Path;
 
-/// How a host should reach the operator.
+/// How a host should reach the server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transport {
-    /// Launch `operator <argv…>` over stdio. `argv[0]` is the subcommand
-    /// (`serve`), the rest are its flags.
+    /// Launch `code-intelligence <argv…>` over stdio. `argv[0]` is the
+    /// subcommand (`serve`), the rest are its flags.
     Stdio {
         /// The argv after the command name.
         argv: Argv,
@@ -47,8 +49,6 @@ pub enum Transport {
 /// What to do with a file that already exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// Write only when the file is absent (`operator init`).
-    CreateOnly,
     /// Merge and refresh our entry; leave an unreadable file untouched.
     Reconcile,
     /// Rewrite the whole file with only our entry (`--force` / `--force-register`).
@@ -64,11 +64,15 @@ pub struct Registered {
     pub updated_at: UpdatedAt,
 }
 
-/// The `operator` server name in every host file.
-pub const SERVER: &str = "operator";
+/// The `code-intelligence` server name in every host file.
+pub const SERVER: &str = "code-intelligence";
 
 /// The command every stdio registration launches.
-pub const COMMAND: &str = "operator";
+pub const COMMAND: &str = "code-intelligence";
+
+/// The pre-rename server name. Reconciliation removes this entry so a host
+/// does not keep trying to launch the old binary.
+const LEGACY_SERVER: &str = "operator";
 
 /// One host's registration file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +81,7 @@ enum Host {
     Claude,
     /// Gemini CLI: `.gemini/settings.json`, `{"mcpServers": {...}, ...}`.
     Gemini,
-    /// Codex CLI: `.codex/config.toml`, `[mcp_servers.operator]`.
+    /// Codex CLI: `.codex/config.toml`, `[mcp_servers.code-intelligence]`.
     Codex,
     /// Cursor: `.cursor/mcp.json`, `{"mcpServers": {...}}`.
     Cursor,
@@ -99,12 +103,12 @@ fn now_unix() -> i64 {
     time::OffsetDateTime::now_utc().unix_timestamp()
 }
 
-/// Write or refresh the `operator` entry in every host file.
+/// Write or refresh the `code-intelligence` entry in every host file.
 ///
 /// `log_prefix` names the caller in the stderr lines (`init`, `serve`).
 /// Returns the files actually written; an untouched (or skipped) file is not
 /// in the list.
-pub fn register_operator(
+pub fn register_hosts(
     workspace: &Path,
     transport: &Transport,
     mode: Mode,
@@ -176,10 +180,6 @@ fn write_json(
     if !path.exists() {
         return write_atomic(path, &fresh_json(host, transport)?, log_prefix);
     }
-    if mode == Mode::CreateOnly {
-        announce_kept(log_prefix, path);
-        return Ok(false);
-    }
     if mode == Mode::ReplaceFile {
         return write_atomic(path, &fresh_json(host, transport)?, log_prefix);
     }
@@ -203,7 +203,9 @@ fn write_json(
         );
         return Ok(false);
     };
-    if servers.get(SERVER) == Some(&target) {
+    // Drop the pre-rename entry: it points at a command that no longer exists.
+    let had_legacy = servers.remove(LEGACY_SERVER).is_some();
+    if servers.get(SERVER) == Some(&target) && !had_legacy {
         return Ok(false);
     }
     servers.insert(SERVER.to_string(), target);
@@ -231,7 +233,7 @@ fn fresh_codex(transport: &Transport) -> String {
     }
     format!(
         "# Project-local MCP servers for Codex CLI (user scope: ~/.codex/config.toml).\n\
-         [mcp_servers.operator]\n{body}"
+         [mcp_servers.{SERVER}]\n{body}"
     )
 }
 
@@ -240,10 +242,6 @@ fn fresh_codex(transport: &Transport) -> String {
 fn write_codex(path: &Path, transport: &Transport, mode: Mode, log_prefix: &str) -> Result<bool> {
     if !path.exists() {
         return write_atomic(path, &fresh_codex(transport), log_prefix);
-    }
-    if mode == Mode::CreateOnly {
-        announce_kept(log_prefix, path);
-        return Ok(false);
     }
     if mode == Mode::ReplaceFile {
         return write_atomic(path, &fresh_codex(transport), log_prefix);
@@ -265,6 +263,8 @@ fn write_codex(path: &Path, transport: &Transport, mode: Mode, log_prefix: &str)
         );
         return Ok(false);
     };
+    // Drop the pre-rename entry: it points at a command that no longer exists.
+    servers.remove(LEGACY_SERVER);
     let entry = servers
         .entry(SERVER)
         .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
@@ -321,7 +321,7 @@ fn write_atomic(path: &Path, text: &str, log_prefix: &str) -> Result<bool> {
     })?;
     std::fs::create_dir_all(parent)
         .map_err(|e| Error::msg(format!("creating {} failed: {e}", parent.display())))?;
-    let tmp = path.with_extension("tmp.operator");
+    let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, text)
         .map_err(|e| Error::msg(format!("writing {} failed: {e}", tmp.display())))?;
     std::fs::rename(&tmp, path)
@@ -330,16 +330,9 @@ fn write_atomic(path: &Path, text: &str, log_prefix: &str) -> Result<bool> {
     Ok(true)
 }
 
-fn announce_kept(log_prefix: &str, path: &Path) {
-    note!(
-        "{log_prefix}: {} already exists — leaving it (use --force to rewrite)",
-        path.display()
-    );
-}
-
 fn announce_unreadable(log_prefix: &str, path: &Path) {
     note!(
-        "{log_prefix}: {} is not a document the operator can edit — leaving it \
+        "{log_prefix}: {} is not a document this tool can edit — leaving it \
          (use --force-register to rewrite it)",
         path.display()
     );
@@ -369,7 +362,7 @@ mod tests {
     #[test]
     fn a_fresh_file_is_created_for_every_host() {
         let dir = tempfile::tempdir().unwrap();
-        let done = register_operator(dir.path(), &http(), Mode::CreateOnly, "test").unwrap();
+        let done = register_hosts(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
         assert_eq!(
             done.files,
             vec![
@@ -384,7 +377,7 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
                 .unwrap();
         assert_eq!(
-            claude["mcpServers"]["operator"],
+            claude["mcpServers"]["code-intelligence"],
             serde_json::json!({"type": "http", "url": "http://127.0.0.1:3921/mcp"})
         );
         let gemini: serde_json::Value = serde_json::from_str(
@@ -392,11 +385,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            gemini["mcpServers"]["operator"],
+            gemini["mcpServers"]["code-intelligence"],
             serde_json::json!({"url": "http://127.0.0.1:3921/mcp", "type": "http"})
         );
         let codex = std::fs::read_to_string(dir.path().join(".codex/config.toml")).unwrap();
-        assert!(codex.contains("[mcp_servers.operator]"), "{codex}");
+        assert!(codex.contains("[mcp_servers.code-intelligence]"), "{codex}");
         assert!(
             codex.contains(r#"url = "http://127.0.0.1:3921/mcp""#),
             "{codex}"
@@ -406,7 +399,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            cursor["mcpServers"]["operator"],
+            cursor["mcpServers"]["code-intelligence"],
             serde_json::json!({"url": "http://127.0.0.1:3921/mcp"})
         );
         let agy: serde_json::Value = serde_json::from_str(
@@ -414,11 +407,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            agy["mcpServers"]["operator"],
+            agy["mcpServers"]["code-intelligence"],
             serde_json::json!({"serverUrl": "http://127.0.0.1:3921/mcp"})
         );
         // No temp file is left behind.
-        assert!(!dir.path().join(".mcp.tmp.operator").exists());
+        assert!(!dir.path().join(".mcp.tmp").exists());
     }
 
     #[test]
@@ -436,7 +429,7 @@ mod tests {
         )
         .unwrap();
 
-        register_operator(dir.path(), &stdio(), Mode::Reconcile, "test").unwrap();
+        register_hosts(dir.path(), &stdio(), Mode::Reconcile, "test").unwrap();
 
         let claude: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
@@ -444,8 +437,8 @@ mod tests {
         assert_eq!(claude["mcpServers"]["other"]["command"], "other");
         assert_eq!(claude["extra"], true);
         assert_eq!(
-            claude["mcpServers"]["operator"],
-            serde_json::json!({"command": "operator", "args": ["serve", "--planner-model", "x"]})
+            claude["mcpServers"]["code-intelligence"],
+            serde_json::json!({"command": "code-intelligence", "args": ["serve", "--planner-model", "x"]})
         );
         let gemini: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(dir.path().join(".gemini/settings.json")).unwrap(),
@@ -465,12 +458,12 @@ mod tests {
             &path,
             "# my codex settings\nmodel = \"gpt-5.6-sol\"\n\
              [mcp_servers.other]\ncommand = \"other\"\n\n\
-             [mcp_servers.operator]\ncommand = \"operator\"\nargs = [\"serve\"]\n\n\
+             [mcp_servers.code-intelligence]\ncommand = \"code-intelligence\"\nargs = [\"serve\"]\n\n\
              [projects.\"/w\"]\ntrust_level = \"trusted\"\n",
         )
         .unwrap();
 
-        register_operator(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
+        register_hosts(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# my codex settings"), "{text}");
         assert!(text.contains("[mcp_servers.other]"), "{text}");
@@ -480,15 +473,15 @@ mod tests {
             "{text}"
         );
         assert!(
-            !text.contains(r#"command = "operator""#),
+            !text.contains(r#"command = "code-intelligence""#),
             "the stale stdio command must be gone: {text}"
         );
         assert!(!text.contains("args = "), "{text}");
 
         // And back to stdio: the URL must not linger.
-        register_operator(dir.path(), &stdio(), Mode::Reconcile, "test").unwrap();
+        register_hosts(dir.path(), &stdio(), Mode::Reconcile, "test").unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains(r#"command = "operator""#), "{text}");
+        assert!(text.contains(r#"command = "code-intelligence""#), "{text}");
         assert!(
             text.contains(r#"args = ["serve", "--planner-model", "x"]"#),
             "{text}"
@@ -499,10 +492,10 @@ mod tests {
     #[test]
     fn reconcile_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
-        register_operator(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
+        register_hosts(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
         let claude = std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
         let codex = std::fs::read_to_string(dir.path().join(".codex/config.toml")).unwrap();
-        let again = register_operator(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
+        let again = register_hosts(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
         assert!(
             again.files.is_empty(),
             "no file should be rewritten: {:?}",
@@ -519,39 +512,76 @@ mod tests {
     }
 
     #[test]
-    fn create_only_leaves_existing_files_alone() {
+    fn reconcile_removes_the_legacy_operator_entry() {
+        // A workspace registered by the pre-rename binary must end up with only
+        // the new entry, so hosts stop launching a command that no longer exists.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(".mcp.json"),
-            r#"{"mcpServers":{"operator":{"command":"old"}}}"#,
+            r#"{"mcpServers":{"operator":{"command":"operator","args":["serve"]},"other":{"command":"other"}}}"#,
         )
         .unwrap();
-        let done = register_operator(dir.path(), &http(), Mode::CreateOnly, "test").unwrap();
-        assert!(
-            !done.files.contains(&HostFile::from(".mcp.json")),
-            "{:?}",
-            done.files
-        );
+        std::fs::create_dir_all(dir.path().join(".gemini")).unwrap();
+        std::fs::write(
+            dir.path().join(".gemini/settings.json"),
+            r#"{"mcpServers":{"operator":{"command":"operator","args":["serve"]}},"ui":{"theme":"dark"}}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join(".codex")).unwrap();
+        std::fs::write(
+            dir.path().join(".codex/config.toml"),
+            "[mcp_servers.operator]\ncommand = \"operator\"\nargs = [\"serve\"]\n\n\
+             [mcp_servers.other]\ncommand = \"other\"\n",
+        )
+        .unwrap();
+
+        register_hosts(dir.path(), &stdio(), Mode::Reconcile, "test").unwrap();
+
         let claude: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
                 .unwrap();
-        assert_eq!(claude["mcpServers"]["operator"]["command"], "old");
+        assert!(
+            claude["mcpServers"].get("operator").is_none(),
+            "legacy entry must be gone: {claude}"
+        );
+        assert_eq!(claude["mcpServers"]["other"]["command"], "other");
+        assert_eq!(
+            claude["mcpServers"]["code-intelligence"]["command"],
+            "code-intelligence"
+        );
+        let gemini: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join(".gemini/settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            gemini["mcpServers"].get("operator").is_none(),
+            "legacy Gemini entry must be gone: {gemini}"
+        );
+        assert_eq!(
+            gemini["mcpServers"]["code-intelligence"]["command"],
+            "code-intelligence"
+        );
+        assert_eq!(gemini["ui"]["theme"], "dark");
+        let codex = std::fs::read_to_string(dir.path().join(".codex/config.toml")).unwrap();
+        assert!(!codex.contains("[mcp_servers.operator]"), "{codex}");
+        assert!(codex.contains("[mcp_servers.code-intelligence]"), "{codex}");
+        assert!(codex.contains("[mcp_servers.other]"), "{codex}");
     }
 
     #[test]
     fn an_unreadable_file_is_left_alone_unless_forced() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(".mcp.json"), "{ not json").unwrap();
-        register_operator(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
+        register_hosts(dir.path(), &http(), Mode::Reconcile, "test").unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap(),
             "{ not json"
         );
-        register_operator(dir.path(), &http(), Mode::ReplaceFile, "test").unwrap();
+        register_hosts(dir.path(), &http(), Mode::ReplaceFile, "test").unwrap();
         let claude: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
                 .unwrap();
-        assert_eq!(claude["mcpServers"]["operator"]["type"], "http");
+        assert_eq!(claude["mcpServers"]["code-intelligence"]["type"], "http");
     }
 
     #[test]
@@ -563,7 +593,7 @@ mod tests {
             r#"{"mcpServers":{"other":{"command":"other"}}}"#,
         )
         .unwrap();
-        register_operator(dir.path(), &http(), Mode::ReplaceFile, "test").unwrap();
+        register_hosts(dir.path(), &http(), Mode::ReplaceFile, "test").unwrap();
         let claude: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
                 .unwrap();

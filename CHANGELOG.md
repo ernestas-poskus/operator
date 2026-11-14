@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Newtype wrappers for the crate's domain primitives (language ids, repo
   paths, source text, counts, line numbers, scores, model/table names, paths
   and configuration flags). The wrappers are `serde(transparent)`, so the JSON
-  and `.operator.toml` wire formats are unchanged.
+  and `.code-intelligence.toml` wire formats are unchanged.
 - Document conversion now routes per format between anydoc 0.2 (primary for
   every format it wins) and xberg 1.3 (primary for `pptx`, the one format where
   it is more faithful and faster), with a typed `best-effort`/`strict` fallback
@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The binary, MCP server entry, config file and state directory now use the
+  `code-intelligence` name: hosts register `code-intelligence` (the previous
+  `operator` entry is removed while reconciling), the config file is
+  `.code-intelligence.toml`, and journals live under
+  `~/.local/state/code-intelligence`. An existing `.operator.toml` is read and
+  replaced on the next config save (`init` or the TUI), and host files are
+  migrated on the next `init` or `serve`.
 - Model weights are downloaded into the shared per-user cache
   (`retrieval_model_cache_dir` when set, else `HF_HOME/hub` / `HF_HUB_CACHE`
   when configured, else `XDG_CACHE_HOME/fastembed`, else

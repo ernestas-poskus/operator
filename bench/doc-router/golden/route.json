@@ -1,5 +1,5 @@
 {
- "schema": "operator-doc-router-route/1",
+ "schema": "code-intelligence-doc-router-route/1",
  "router_revision": 1,
  "anydoc": "0.2.4",
  "xberg": "1.3.10",

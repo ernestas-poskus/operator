@@ -105,7 +105,7 @@ def main() -> int:
 
     rustc = subprocess.run(["rustc", "-V"], capture_output=True, text=True, check=False).stdout.strip()
     snapshot = {
-        "schema": "operator-doc-router-snapshot/1",
+        "schema": "code-intelligence-doc-router-snapshot/1",
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "selection": {
             "seed": manifest.get("seed", 0),

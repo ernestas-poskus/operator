@@ -1,4 +1,4 @@
-//! `.operator.toml` — the selected languages and retrieval settings.
+//! `.code-intelligence.toml` — the selected languages and retrieval settings.
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,12 @@ use crate::types::{
     QueryPrefix, QueryRouting, RerankContext, RerankEnabled, SchemaVersion,
 };
 
-pub const CONFIG_FILE: &str = ".operator.toml";
+pub const CONFIG_FILE: &str = ".code-intelligence.toml";
+
+/// The pre-rename config file. It is read when the current file is absent and
+/// replaced by [`WorkspaceConfig::save`], so an existing workspace keeps its
+/// settings across the rename.
+const LEGACY_CONFIG_FILE: &str = ".operator.toml";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -58,9 +63,16 @@ impl WorkspaceConfig {
 
     pub fn load(workspace: &Path) -> crate::error::Result<Option<Self>> {
         let path = Self::path_for(workspace);
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        let (path, text) = match std::fs::read_to_string(&path) {
+            Ok(text) => (path, text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let legacy = workspace.join(LEGACY_CONFIG_FILE);
+                match std::fs::read_to_string(&legacy) {
+                    Ok(text) => (legacy, text),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                    Err(e) => return Err(e.into()),
+                }
+            }
             Err(e) => return Err(e.into()),
         };
         let cfg = toml::from_str(&text)
@@ -73,6 +85,12 @@ impl WorkspaceConfig {
         let text = toml::to_string_pretty(self)
             .map_err(|e| crate::error::Error::Config(format!("serialize config: {e}")))?;
         std::fs::write(&path, text)?;
+        let legacy = workspace.join(LEGACY_CONFIG_FILE);
+        if legacy != path {
+            // The new file is written; drop the superseded one so only one
+            // config remains. A failed cleanup leaves the old file readable.
+            let _ = std::fs::remove_file(legacy);
+        }
         Ok(())
     }
 
@@ -182,7 +200,7 @@ impl WorkspaceConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::WorkspaceConfig;
+    use super::{LEGACY_CONFIG_FILE, WorkspaceConfig};
     use crate::config::ModelDtype;
     use crate::types::{ChunkLines, EmbedDim, LanguageId, RerankEnabled, SchemaVersion};
     use std::path::Path;
@@ -267,6 +285,25 @@ retrieval_dual_route = false
             Some("query: ")
         );
         assert!(!cfg.retrieval_dual_route.is_on());
+    }
+
+    #[test]
+    fn a_legacy_config_is_read_then_replaced_on_save() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let legacy = dir.path().join(LEGACY_CONFIG_FILE);
+        std::fs::write(&legacy, "schema_version = 3\nlanguages = [\"rust\"]\n").expect("write");
+        let cfg = WorkspaceConfig::load(dir.path())
+            .expect("load")
+            .expect("legacy config");
+        assert_eq!(
+            cfg.languages.as_ref().expect("languages")[0].as_str(),
+            "rust"
+        );
+        assert!(!WorkspaceConfig::path_for(dir.path()).exists());
+
+        cfg.save(dir.path()).expect("save");
+        assert!(WorkspaceConfig::path_for(dir.path()).exists());
+        assert!(!legacy.exists(), "the superseded config must be removed");
     }
 
     #[test]

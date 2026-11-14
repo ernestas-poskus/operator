@@ -375,7 +375,7 @@ pub fn discover_document_files(root: &Path) -> Vec<PathBuf> {
 // folder, so everything indexable under it joins the same table. The set is
 // part of the index identity (a different include set is a different corpus,
 // hence a different table and manifest), and `reindex` records it in the
-// workspace `.operator.toml` so a later plan resolves the same identity.
+// workspace `.code-intelligence.toml` so a later plan resolves the same identity.
 
 /// The largest file an explicitly included tree contributes, in bytes.
 ///
@@ -563,7 +563,8 @@ pub(crate) fn is_excluded_dir_name(name: &str) -> bool {
 }
 
 /// Whether `path` lies inside a tree a filesystem watcher must ignore: the
-/// retrieval walker's policy, plus `operator serve`'s own `.operator/` marker
+/// retrieval walker's policy, plus `code-intelligence serve`'s own
+/// `.code-intelligence/` marker
 /// directory (so writing the runtime marker never triggers a reindex).
 ///
 /// Path-based because `notify` hands back raw paths, not walker entries. The
@@ -574,7 +575,7 @@ pub(crate) fn is_excluded_tree_path(path: &Path) -> bool {
     path.components().any(|c| match c {
         std::path::Component::Normal(name) => {
             let name = name.to_string_lossy();
-            is_excluded_dir_name(&name) || name == ".operator"
+            is_excluded_dir_name(&name) || name == ".code-intelligence"
         }
         _ => false,
     })
@@ -841,7 +842,7 @@ pub fn annotate_document_chunks(
 
 #[cfg(test)]
 /// xberg document-aware chunking (heading/boundary-aware text splitter),
-/// mapped onto the operator's [`LocalChunk`] shape: same context prefix,
+/// mapped onto the server's [`LocalChunk`] shape: same context prefix,
 /// token cap, and 1-based line anchors (derived from xberg's byte offsets).
 /// On any xberg failure it degrades to the legacy sliding window — chunking
 /// is never a hard failure.
@@ -4033,7 +4034,7 @@ mod tests {
     }
 
     /// The serve watcher's path predicates must agree with the retrieval
-    /// walker's tree policy (plus serve's own .operator/).
+    /// walker's tree policy (plus serve's own .code-intelligence/).
     #[test]
     fn the_watcher_path_predicates_follow_the_walker_policy() {
         assert!(is_excluded_tree_path(Path::new("/ws/target/x.rs")));
@@ -4042,7 +4043,9 @@ mod tests {
         assert!(is_excluded_tree_path(Path::new(
             "/ws/.cache/retrieval/x.rs"
         )));
-        assert!(is_excluded_tree_path(Path::new("/ws/.operator/serve.json")));
+        assert!(is_excluded_tree_path(Path::new(
+            "/ws/.code-intelligence/serve.json"
+        )));
         assert!(!is_excluded_tree_path(Path::new("/ws/src/lib.rs")));
 
         assert!(is_indexable_source_path(Path::new("/ws/src/lib.rs")));

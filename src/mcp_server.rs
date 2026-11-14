@@ -362,7 +362,7 @@ impl CodeIntelligenceMcpServer {
 }
 
 #[tool_handler(
-    name = "operator",
+    name = "code-intelligence",
     instructions = "Read-only code intelligence for a workspace: ast-grep structural search, outline, indexed text/semantic search, and source reads. Use the host's compiler/editor tools for type and reference semantics. No tool edits files."
 )]
 impl ServerHandler for CodeIntelligenceMcpServer {}

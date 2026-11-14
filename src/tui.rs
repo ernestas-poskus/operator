@@ -236,14 +236,14 @@ impl App {
         let transport = crate::mcp_register::Transport::Stdio {
             argv: Argv::new(vec![CommandArg::from("serve")]),
         };
-        let _ = crate::mcp_register::register_operator(
+        let _ = crate::mcp_register::register_hosts(
             &self.workspace,
             &transport,
             crate::mcp_register::Mode::Reconcile,
             "tui",
         );
         self.dirty = false;
-        self.push_log("saved .operator.toml");
+        self.push_log("saved .code-intelligence.toml");
         Ok(())
     }
 
@@ -1370,7 +1370,7 @@ pub async fn run_reindex(workspace: WorkspaceRoot, rebuild: bool) -> Result<()> 
         .unwrap_or(workspace);
     if WorkspaceConfig::load(&workspace)?.is_none() {
         return Err(Error::Config(
-            "no .operator.toml; run `code-intelligence init` first".into(),
+            "no .code-intelligence.toml; run `code-intelligence init` first".into(),
         ));
     }
     let detected = languages::detect(&workspace);
@@ -1390,7 +1390,7 @@ pub async fn run(args: TuiArgs) -> Result<()> {
         .unwrap_or(root);
     if WorkspaceConfig::load(&workspace)?.is_none() {
         return Err(Error::Config(
-            "no .operator.toml; run `code-intelligence init` first".into(),
+            "no .code-intelligence.toml; run `code-intelligence init` first".into(),
         ));
     }
     let detected = languages::detect(&workspace);

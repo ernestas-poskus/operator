@@ -27,7 +27,7 @@ a configured workspace; `code-intelligence reindex --tui` opens it on the Index 
 | `/` | filter the tree |
 | `r` | start an incremental index |
 | `b` | rebuild the index |
-| `s` | save `.operator.toml` |
+| `s` | save `.code-intelligence.toml` |
 | `a` | save and start indexing |
 | `q` / `Esc` | quit (twice if there are unsaved changes) |
 | `?` | help overlay |
@@ -39,7 +39,7 @@ implicit include. The deepest explicit path wins; an explicit exclude beats an
 include at the same path. `.gitignore` applies to the default walk; an explicit
 include can override it. Paths must resolve inside the workspace.
 
-Both lists are stored in `.operator.toml`:
+Both lists are stored in `.code-intelligence.toml`:
 
 ```toml
 schema_version = 3
@@ -57,7 +57,7 @@ Indexing emits file-level progress events: discover, hash, table, per-file
 insert, manifest and done. The Index tab also shows fresh/stale file counts and
 the manifest's last write time.
 
-Usage is read from `~/.local/state/operator/<repo-hash>/journal` and covers
+Usage is read from `~/.local/state/code-intelligence/<repo-hash>/journal` and covers
 only code-intelligence's own MCP calls; it cannot see host-native tools or other MCP
 servers. File events come from a local watcher and never trigger an automatic
 reindex — press `r` to pay for embeddings.

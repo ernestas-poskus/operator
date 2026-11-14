@@ -7,11 +7,11 @@ crates/*/target/
 
 /.cache
 /.fastembed_cache
-# `operator serve` runtime marker directory (server state, never committed).
-/.operator/
-/.operator.toml
-/.operator.toml.bak
-/.operator.toml.tmp
+# `code-intelligence serve` runtime marker directory (server state, never committed).
+/.code-intelligence/
+/.code-intelligence.toml
+/.code-intelligence.toml.bak
+/.code-intelligence.toml.tmp
 /.mcp.json
 /.codex/
 /.gemini/

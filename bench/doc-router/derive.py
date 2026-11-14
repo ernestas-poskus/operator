@@ -153,7 +153,7 @@ def main() -> int:
 
     GOLDEN.mkdir(parents=True, exist_ok=True)
     route = {
-        "schema": "operator-doc-router-route/1",
+        "schema": "code-intelligence-doc-router-route/1",
         "router_revision": 1,
         "anydoc": snapshot["pins"]["anydoc"],
         "xberg": snapshot["pins"]["xberg"],

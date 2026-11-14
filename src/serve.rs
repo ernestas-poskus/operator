@@ -1,4 +1,4 @@
-//! `operator serve`: stdio MCP only.
+//! `code-intelligence serve`: stdio MCP only.
 use std::sync::Arc;
 
 use crate::cli::ServeArgs;
@@ -15,7 +15,7 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         .map(WorkspaceRoot::from)
         .unwrap_or(root);
     let ws = WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
-        Error::Config("no .operator.toml; run `code-intelligence init` first".into())
+        Error::Config("no .code-intelligence.toml; run `code-intelligence init` first".into())
     })?;
     let cfg = ws.into_config(&workspace);
     validate(&cfg)?;
@@ -23,7 +23,7 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         let transport = mcp_register::Transport::Stdio {
             argv: Argv::new(vec![CommandArg::from("serve")]),
         };
-        let _ = mcp_register::register_operator(
+        let _ = mcp_register::register_hosts(
             &workspace,
             &transport,
             mcp_register::Mode::Reconcile,

@@ -31,13 +31,13 @@ pub struct JournalEvent {
 }
 
 fn default_journal_dir(workspace: &Path) -> PathBuf {
-    let root = std::env::var_os("OPERATOR_STATE_DIR")
+    let root = std::env::var_os("CODE_INTELLIGENCE_STATE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             let home = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."));
-            home.join(".local/state/operator")
+            home.join(".local/state/code-intelligence")
         });
     let identity = crate::config::repo_identity(workspace);
     let mut hasher = Sha256::new();

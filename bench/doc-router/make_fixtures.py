@@ -103,7 +103,7 @@ def main() -> int:
     build_generated()
 
     manifest = {
-        "schema": "operator-doc-router-fixtures/1",
+        "schema": "code-intelligence-doc-router-fixtures/1",
         "files": {
             name: {
                 "sha256": sha256(FIXTURES / name),

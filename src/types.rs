@@ -4,7 +4,7 @@
 //! `String`, integer, float, path or boolean: a language id can never be
 //! mistaken for a repo path, a line number for a byte count, or a token limit
 //! for a page size. Each wrapper is `#[serde(transparent)]`, so the JSON and
-//! `.operator.toml` wire formats are unchanged — the typing is compile-time
+//! `.code-intelligence.toml` wire formats are unchanged — the typing is compile-time
 //! only — and `#[schemars(inline)]`, so host-facing schemas stay primitives.
 //!
 //! Convention: the wrapper name is the meaning (`LineNumber`, `LanguageId`),
@@ -706,7 +706,7 @@ string_newtype!(
 /// Construction goes through the catalog: [`LanguageId::from_lang`] for a
 /// known [`ast_grep_language::SupportLang`], [`LanguageId::parse`] for raw
 /// text. Deserialization validates for the same reason, so a malformed
-/// `.operator.toml` fails loudly at load instead of at first search.
+/// `.code-intelligence.toml` fails loudly at load instead of at first search.
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, schemars::JsonSchema,
 )]
@@ -1041,7 +1041,7 @@ integer_newtype!(
     usize
 );
 integer_newtype!(
-    #[doc = "The `.operator.toml` schema version."]
+    #[doc = "The `.code-intelligence.toml` schema version."]
     SchemaVersion,
     u32
 );

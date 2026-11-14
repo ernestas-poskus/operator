@@ -61,7 +61,9 @@ async fn reindex(args: cli::ReindexArgs) -> error::Result<()> {
         .map(crate::types::WorkspaceRoot::from)
         .unwrap_or(root);
     let ws = workspace_config::WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
-        error::Error::Config("no .operator.toml; run `code-intelligence init` first".into())
+        error::Error::Config(
+            "no .code-intelligence.toml; run `code-intelligence init` first".into(),
+        )
     })?;
     let cfg = ws.into_config(&workspace);
     serve::validate(&cfg)?;

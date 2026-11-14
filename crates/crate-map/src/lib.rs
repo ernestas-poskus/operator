@@ -1502,12 +1502,12 @@ serde = "1"
 
     const PACKAGE: &str = r#"
 [package]
-name = "operator"
+name = "code-intelligence"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "operator"
+name = "code-intelligence"
 path = "src/main.rs"
 
 [dependencies]
@@ -1555,11 +1555,11 @@ members = ["a", "b"]
     fn parse_manifest_reads_a_package_with_targets_and_path_deps() {
         let record = parse_manifest(PACKAGE, "Cargo.toml").expect("parses");
         assert_eq!(record.kind, CrateKind::Package);
-        assert_eq!(record.name, "operator");
+        assert_eq!(record.name, "code-intelligence");
         assert_eq!(record.edition.as_deref(), Some("2024"));
         assert_eq!(record.targets.len(), 1);
         assert_eq!(record.targets[0].kind, TargetKind::Bin);
-        assert_eq!(record.targets[0].name, "operator");
+        assert_eq!(record.targets[0].name, "code-intelligence");
         assert_eq!(record.targets[0].rel_path.as_deref(), Some("src/main.rs"));
         assert_eq!(
             record.path_dep_paths.get("mentions").map(String::as_str),
@@ -1680,7 +1680,7 @@ not_a_mod_line
     #[test]
     fn remote_crate_map_accepts_a_manifest_and_rejects_prose() {
         let map = remote_crate_map(PACKAGE).expect("manifest detected");
-        assert!(map.contains("crate: operator"), "{map}");
+        assert!(map.contains("crate: code-intelligence"), "{map}");
         assert!(
             map.contains("modules: unavailable (remote manifest)"),
             "{map}"
@@ -1763,7 +1763,7 @@ not_a_mod_line
         repo_shaped_fixture(dir.path());
         let scopes = crate_scopes(dir.path(), test_exclude);
         let names: Vec<&str> = scopes.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"operator"), "{names:?}");
+        assert!(names.contains(&"code-intelligence"), "{names:?}");
         assert!(names.contains(&"mentions"), "{names:?}");
         // Reached through the root manifest's `path = ...`, even though the
         // walker excludes `vendor/`.
@@ -2312,13 +2312,16 @@ not_a_mod_line
             "the map feeds the run key — it must be stable"
         );
         assert!(first.starts_with("// crate map: Cargo.toml\n"), "{first}");
-        assert!(first.contains("crate: operator (.) — package"), "{first}");
         assert!(
-            first.contains("targets: bin:operator -> src/main.rs"),
+            first.contains("crate: code-intelligence (.) — package"),
             "{first}"
         );
         assert!(
-            first.contains("path deps: operator -> mentions, xberg"),
+            first.contains("targets: bin:code-intelligence -> src/main.rs"),
+            "{first}"
+        );
+        assert!(
+            first.contains("path deps: code-intelligence -> mentions, xberg"),
             "{first}"
         );
         assert!(first.contains("modules ("), "{first}");

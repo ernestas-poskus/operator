@@ -68,15 +68,15 @@ impl std::fmt::Debug for Operator {
 }
 
 impl Operator {
-    /// Open a workspace with `.operator.toml` and attempt to build the index.
+    /// Open a workspace with `.code-intelligence.toml` and attempt to build the index.
     ///
     /// A missing/invalid configuration is an error. An index build failure is
-    /// not: the operator remains usable for outline, literal/regex/AST and
+    /// not: the server remains usable for outline, literal/regex/AST and
     /// source reads, and [`Operator::has_index`] reports false.
     pub async fn open(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = canonical_workspace(workspace.as_ref())?;
         let ws = WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
-            Error::Config("no .operator.toml; run `code-intelligence init` first".into())
+            Error::Config("no .code-intelligence.toml; run `code-intelligence init` first".into())
         })?;
         Self::from_config(ws.into_config(&workspace)).await
     }
@@ -85,12 +85,12 @@ impl Operator {
     pub fn open_unindexed(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = canonical_workspace(workspace.as_ref())?;
         let ws = WorkspaceConfig::load(&workspace)?.ok_or_else(|| {
-            Error::Config("no .operator.toml; run `code-intelligence init` first".into())
+            Error::Config("no .code-intelligence.toml; run `code-intelligence init` first".into())
         })?;
         Self::from_config_unindexed(ws.into_config(&workspace))
     }
 
-    /// Build an operator from a programmatic configuration and attempt to build
+    /// Build an [`Operator`] from a programmatic configuration and attempt to build
     /// the index.
     pub async fn from_config(cfg: Config) -> Result<Self> {
         let cfg = canonical_config(cfg)?;
@@ -106,7 +106,7 @@ impl Operator {
         })
     }
 
-    /// Build an operator from a programmatic configuration without an index.
+    /// Build an [`Operator`] from a programmatic configuration without an index.
     pub fn from_config_unindexed(cfg: Config) -> Result<Self> {
         let cfg = canonical_config(cfg)?;
         crate::serve::validate(&cfg)?;

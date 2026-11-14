@@ -93,7 +93,7 @@ guarantee and the per-document panic isolation.
 ## Configuration
 
 ```toml
-# .operator.toml
+# .code-intelligence.toml
 retrieval_documents = true
 retrieval_document_engine = "auto"        # auto | anydoc | xberg
 retrieval_document_fallback = "best-effort" # best-effort | strict

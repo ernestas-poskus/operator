@@ -28,7 +28,7 @@ const QWEN3_EMBEDDER_IMPL: &str = "candle-qwen3-1";
 /// Queue depth for the embedder's internal forward passes.
 const EMBED_BATCH_SIZE: usize = 32;
 
-/// The legacy HTTP model ids, kept so an existing `.operator.toml` keeps
+/// The legacy HTTP model ids, kept so an existing `.code-intelligence.toml` keeps
 /// working after the port.
 const LEGACY_EMBED_MODEL: &str = "mxbai-embed-large-v1";
 const LEGACY_RERANK_MODEL: &str = "Qwen3-Reranker-0.6B";
@@ -233,7 +233,7 @@ impl FastembedModels {
             }
         };
         let probe = embedder
-            .embed(&["operator dimension probe".to_string()])
+            .embed(&["code-intelligence dimension probe".to_string()])
             .map_err(|e| format!("probing {} hidden size: {e}", self.inner.embed_repo))?;
         let model_dim = probe.first().map_or(0, Vec::len);
         if model_dim < self.inner.embed_dim {
